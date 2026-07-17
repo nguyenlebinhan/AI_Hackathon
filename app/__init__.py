@@ -1,0 +1,2 @@
+"""VADS backend application package."""
+
