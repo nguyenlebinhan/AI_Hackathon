@@ -10,6 +10,18 @@ import {
   Maximize2, Copy, Mail, Users, Lock, BookOpen, Hash,
   User, Phone, MapPin, Save, FileUp, GripVertical, Briefcase, Layers,
 } from "lucide-react";
+import {
+  ApiError,
+  changePassword,
+  clearSession,
+  getCurrentUser,
+  hasStoredSession,
+  listDocuments,
+  login,
+  logout,
+  type DocumentPublic,
+  type UserPublic,
+} from "../api";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
@@ -34,16 +46,46 @@ interface ImportData {
   vanBanFile: string | null;
 }
 
-// ─── DATA ────────────────────────────────────────────────────────────────────
+interface DocumentView {
+  id: string;
+  name: string;
+  date: string;
+  month: string;
+  year: number;
+  type: string;
+  status: DocumentPublic["status"];
+  approvalStatus: DocumentPublic["approval_status"];
+}
 
-const MY_DOCUMENTS = [
-  { id: 1, name: "Nghị định 15/2021/NĐ-CP về quản lý dự án đầu tư xây dựng", date: "15/07/2025", month: "Tháng 7", year: 2025, type: "Nghị định" },
-  { id: 2, name: "Thông tư 08/2025/TT-BTC hướng dẫn quản lý ngân sách nhà nước", date: "22/07/2025", month: "Tháng 7", year: 2025, type: "Thông tư" },
-  { id: 3, name: "Quyết định 1234/QĐ-TTg phê duyệt Đề án chuyển đổi số quốc gia", date: "05/07/2025", month: "Tháng 7", year: 2025, type: "Quyết định" },
-  { id: 4, name: "Luật Đầu tư công số 39/2019/QH14 (hợp nhất)", date: "10/08/2025", month: "Tháng 8", year: 2025, type: "Luật" },
-  { id: 5, name: "Nghị quyết 58/NQ-CP về đẩy mạnh cải cách hành chính 2025–2030", date: "20/08/2025", month: "Tháng 8", year: 2025, type: "Nghị quyết" },
-  { id: 6, name: "Thông tư liên tịch 12/2024/TTLT-BTP-BNV về đăng ký hộ tịch", date: "28/08/2025", month: "Tháng 8", year: 2025, type: "Thông tư" },
+const MONTH_NAMES = [
+  "Tháng 1", "Tháng 2", "Tháng 3", "Tháng 4", "Tháng 5", "Tháng 6",
+  "Tháng 7", "Tháng 8", "Tháng 9", "Tháng 10", "Tháng 11", "Tháng 12",
 ];
+
+function toDocumentView(document: DocumentPublic): DocumentView {
+  const createdAt = new Date(document.created_at);
+  return {
+    id: document.id,
+    name: document.title,
+    date: new Intl.DateTimeFormat("vi-VN").format(createdAt),
+    month: MONTH_NAMES[createdAt.getMonth()],
+    year: createdAt.getFullYear(),
+    type: document.approval_status === "APPROVED" ? "Đã phê duyệt" : "Tài liệu",
+    status: document.status,
+    approvalStatus: document.approval_status,
+  };
+}
+
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(-2)
+    .map(part => part[0]?.toUpperCase())
+    .join("") || "VA";
+}
+
+// ─── DATA ────────────────────────────────────────────────────────────────────
 
 const LEGAL_LIBRARY = [
   { id: 1, name: "Bộ luật Dân sự 2015", category: "Dân sự", status: "Còn hiệu lực", year: 2015, issuer: "Quốc hội", number: "91/2015/QH13" },
@@ -371,9 +413,27 @@ function DocTypeBadge({ type }: { type: string }) {
 }
 
 function StatusPill({ status }: { status: string }) {
+  const labels: Record<string, string> = {
+    UPLOADED: "Đã tải lên",
+    QUEUED: "Đang chờ",
+    PROCESSING: "Đang xử lý",
+    COMPLETED: "Hoàn tất",
+    FAILED: "Thất bại",
+    CANCELLED: "Đã hủy",
+    NEEDS_REVIEW: "Cần rà soát",
+  };
+  const colors: Record<string, string> = {
+    COMPLETED: "bg-emerald-50 text-emerald-700",
+    PROCESSING: "bg-blue-50 text-blue-700",
+    QUEUED: "bg-amber-50 text-amber-700",
+    UPLOADED: "bg-violet-50 text-violet-700",
+    NEEDS_REVIEW: "bg-orange-50 text-orange-700",
+    FAILED: "bg-red-50 text-red-700",
+    CANCELLED: "bg-gray-100 text-gray-500",
+  };
   return (
-    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${status === "Còn hiệu lực" ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-400"}`}>
-      {status}
+    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${colors[status] ?? (status === "Còn hiệu lực" ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500")}`}>
+      {labels[status] ?? status}
     </span>
   );
 }
@@ -684,11 +744,10 @@ function LawFullTextModal({ law, onClose }: { law: typeof LEGAL_LIBRARY[0]; onCl
 
 // ─── LAW DETAIL VIEW ──────────────────────────────────────────────────────────
 
-function LawDetailView({ law, onBack, onSelectLaw, onGoToTree }: {
+function LawDetailView({ law, onBack, onSelectLaw }: {
   law: typeof LEGAL_LIBRARY[0];
   onBack: () => void;
   onSelectLaw: (l: typeof LEGAL_LIBRARY[0]) => void;
-  onGoToTree: () => void;
 }) {
   const detail = LAW_DETAILS[law.id];
   const relatedLaws = (detail?.relatedIds ?? []).map(id => LEGAL_LIBRARY.find(l => l.id === id)).filter((l): l is typeof LEGAL_LIBRARY[0] => !!l);
@@ -732,8 +791,8 @@ function LawDetailView({ law, onBack, onSelectLaw, onGoToTree }: {
               className="flex items-center gap-2 px-4 py-2.5 bg-[#0F1623] hover:bg-[#1a2535] text-white text-xs font-bold rounded-xl transition-colors shadow-sm">
               <BookOpen className="w-3.5 h-3.5" />Xem chi tiết
             </button>
-            <button onClick={onGoToTree} className="flex items-center gap-2 px-4 py-2.5 bg-[#C41E3A] hover:bg-[#a8172f] text-white text-xs font-bold rounded-xl transition-colors shadow-sm">
-              <GitBranch className="w-3.5 h-3.5" />Tạo sơ đồ tư duy
+            <button disabled title="Backend /api/v1 chưa hỗ trợ tạo sơ đồ" className="flex cursor-not-allowed items-center gap-2 rounded-xl bg-gray-100 px-4 py-2.5 text-xs font-bold text-gray-400">
+              <GitBranch className="w-3.5 h-3.5" />Tạo sơ đồ chưa mở
             </button>
           </div>
         </div>
@@ -803,37 +862,52 @@ const NAV_ITEMS = [
 
 // ─── PROFILE MODAL ───────────────────────────────────────────────────────────
 
-function ProfileModal({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<"info" | "password">("info");
-  const [phone, setPhone] = useState("0912 345 678");
-  const [chucVu, setChucVu] = useState("Chuyên viên pháp chế");
-  const [phongBan, setPhongBan] = useState("Phòng Pháp chế");
-  const [thon, setThon] = useState("");
-  const [xa, setXa] = useState("Xã Phú Xuân");
-  const [tinh, setTinh] = useState("Tỉnh Thái Bình");
-  const [saved, setSaved] = useState(false);
+function ProfileModal({ user, onClose, onPasswordChanged }: {
+  user: UserPublic;
+  onClose: () => void;
+  onPasswordChanged: () => void;
+}) {
+  const [tab, setTab] = useState<"info" | "password">(user.must_change_password ? "password" : "info");
   const [curPwd, setCurPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
-  const [pwdSaved, setPwdSaved] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordSaved, setPasswordSaved] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
-  const handleSaveInfo = () => { setSaved(true); setTimeout(() => setSaved(false), 2000); };
-  const handleSavePwd = () => {
-    if (!curPwd || !newPwd || newPwd !== confirmPwd) return;
-    setPwdSaved(true);
-    setCurPwd(""); setNewPwd(""); setConfirmPwd("");
-    setTimeout(() => setPwdSaved(false), 2000);
+  const handleSavePwd = async () => {
+    if (!curPwd || newPwd.length < 12 || newPwd !== confirmPwd) return;
+    setSavingPassword(true);
+    setPasswordError(null);
+    try {
+      await changePassword(curPwd, newPwd);
+      setPasswordSaved(true);
+      setTimeout(onPasswordChanged, 900);
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : "Không thể đổi mật khẩu.");
+    } finally {
+      setSavingPassword(false);
+    }
   };
+
+  const fields = [
+    ["Họ và tên", user.full_name],
+    ["Tên đăng nhập", user.username],
+    ["Email", user.email],
+    ["Vai trò", user.role === "ADMIN" ? "Quản trị viên" : "Người dùng"],
+    ["Chức vụ", user.position || "Chưa cập nhật"],
+    ["Phòng ban", user.department || "Chưa cập nhật"],
+  ];
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full" style={{ maxWidth: 520 }}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#C41E3A] to-[#8a1224] flex items-center justify-center text-white font-bold">NV</div>
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#C41E3A] to-[#8a1224] flex items-center justify-center text-white font-bold">{initials(user.full_name)}</div>
             <div>
-              <h2 className="text-sm font-bold text-gray-900">Nguyễn Văn An</h2>
-              <p className="text-[10px] text-gray-400">an.nguyen@vads.gov.vn</p>
+              <h2 className="text-sm font-bold text-gray-900">{user.full_name}</h2>
+              <p className="text-[10px] text-gray-400">{user.email}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"><X className="w-4 h-4" /></button>
@@ -852,51 +926,24 @@ function ProfileModal({ onClose }: { onClose: () => void }) {
           {tab === "info" ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Họ và tên</label>
-                  <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-400 select-none">Nguyễn Văn An</div>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Email</label>
-                  <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-400 select-none">an.nguyen@vads.gov.vn</div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                {([["Số điện thoại", phone, setPhone, Phone], ["Chức vụ", chucVu, setChucVu, Briefcase]] as const).map(([label, val, setter, Icon]) => (
+                {fields.map(([label, value]) => (
                   <div key={label}>
                     <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{label}</label>
-                    <div className="relative">
-                      <Icon className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-300" />
-                      <input value={val} onChange={e => setter(e.target.value)} className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#C41E3A]/20 focus:border-[#C41E3A] transition-colors" />
-                    </div>
+                    <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-600 min-h-9">{value}</div>
                   </div>
                 ))}
               </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Phòng ban</label>
-                <div className="relative">
-                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-300" />
-                  <input value={phongBan} onChange={e => setPhongBan(e.target.value)} className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#C41E3A]/20 focus:border-[#C41E3A] transition-colors" />
-                </div>
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+                <p className="text-[11px] text-blue-700 leading-relaxed">Thông tin được đồng bộ từ <code>/api/v1/auth/me</code>. Backend hiện chưa cung cấp API chỉnh sửa hồ sơ.</p>
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                {([["Thôn", thon, setThon, "VD: Thôn 1"], ["Xã", xa, setXa, ""], ["Tỉnh", tinh, setTinh, ""]] as const).map(([label, val, setter, ph]) => (
-                  <div key={label}>
-                    <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{label}</label>
-                    <div className="relative">
-                      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-300" />
-                      <input value={val} onChange={e => setter(e.target.value)} placeholder={ph} className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#C41E3A]/20 focus:border-[#C41E3A] transition-colors" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button onClick={handleSaveInfo}
-                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all ${saved ? "bg-emerald-500 text-white" : "bg-[#0F1623] hover:bg-[#1a2535] text-white"}`}>
-                {saved ? <><CheckCircle2 className="w-3.5 h-3.5" />Đã lưu</> : <><Save className="w-3.5 h-3.5" />Lưu thay đổi</>}
-              </button>
             </div>
           ) : (
             <div className="space-y-4">
+              {user.must_change_password && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[11px] leading-relaxed text-amber-800">
+                  Tài khoản này phải đổi mật khẩu trước khi tiếp tục sử dụng đầy đủ hệ thống.
+                </div>
+              )}
               {[["Mật khẩu hiện tại", curPwd, setCurPwd], ["Mật khẩu mới", newPwd, setNewPwd], ["Xác nhận mật khẩu mới", confirmPwd, setConfirmPwd]].map(([label, val, setter]) => (
                 <div key={label as string}>
                   <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{label as string}</label>
@@ -907,9 +954,14 @@ function ProfileModal({ onClose }: { onClose: () => void }) {
               {newPwd && confirmPwd && newPwd !== confirmPwd && (
                 <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />Mật khẩu xác nhận không khớp</p>
               )}
-              <button onClick={handleSavePwd} disabled={!curPwd || !newPwd || newPwd !== confirmPwd}
-                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all ${pwdSaved ? "bg-emerald-500 text-white" : "bg-[#0F1623] hover:bg-[#1a2535] text-white"} disabled:opacity-40 disabled:cursor-not-allowed`}>
-                {pwdSaved ? <><CheckCircle2 className="w-3.5 h-3.5" />Đã đổi mật khẩu</> : <><Lock className="w-3.5 h-3.5" />Đổi mật khẩu</>}
+              {newPwd && newPwd.length < 12 && (
+                <p className="text-[11px] text-amber-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />Mật khẩu mới phải có ít nhất 12 ký tự</p>
+              )}
+              {passwordError && <p className="text-[11px] text-red-600">{passwordError}</p>}
+              <button onClick={handleSavePwd} disabled={savingPassword || !curPwd || newPwd.length < 12 || newPwd !== confirmPwd}
+                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all ${passwordSaved ? "bg-emerald-500 text-white" : "bg-[#0F1623] hover:bg-[#1a2535] text-white"} disabled:opacity-40 disabled:cursor-not-allowed`}>
+                {savingPassword && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {passwordSaved ? <><CheckCircle2 className="w-3.5 h-3.5" />Đã đổi mật khẩu, đang đăng xuất...</> : <><Lock className="w-3.5 h-3.5" />Đổi mật khẩu</>}
               </button>
             </div>
           )}
@@ -1041,13 +1093,14 @@ function ImportModal({ onClose, onSubmit }: {
   );
 }
 
-function Sidebar({ active, onNavigate, collapsed, onToggle, onProfile, onImport }: {
+function Sidebar({ active, onNavigate, collapsed, onToggle, onProfile, user, onLogout }: {
   active: string;
   onNavigate: (s: Screen) => void;
   collapsed: boolean;
   onToggle: () => void;
   onProfile: () => void;
-  onImport: () => void;
+  user: UserPublic;
+  onLogout: () => void;
 }) {
   const [hoverOpen, setHoverOpen] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -1101,13 +1154,13 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onProfile, onImport 
       {/* ── Import button ── */}
       <div className="flex-shrink-0 px-2.5 pt-4 pb-2">
         <button
-          onClick={() => { onImport(); setHoverOpen(false); }}
-          title="Import file"
-          className="w-full bg-[#C41E3A] hover:bg-[#a8172f] text-white rounded-xl flex items-center justify-center gap-2 font-semibold transition-colors shadow-md overflow-hidden"
+          disabled
+          title="API bảo mật hiện chưa hỗ trợ upload tài liệu"
+          className="w-full bg-white/8 text-white/35 rounded-xl flex items-center justify-center gap-2 font-semibold overflow-hidden cursor-not-allowed"
           style={{ padding: isExpanded ? "10px 16px" : "10px" }}
         >
           <Upload className="w-4 h-4 flex-shrink-0" />
-          {isExpanded && <span className="text-sm whitespace-nowrap">Import file</span>}
+          {isExpanded && <span className="text-sm whitespace-nowrap">Upload chưa mở</span>}
         </button>
       </div>
 
@@ -1136,19 +1189,19 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onProfile, onImport 
         {isExpanded ? (
           <div className="flex items-center gap-3">
             <button onClick={onProfile} title="Thông tin cá nhân"
-              className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C41E3A] to-[#8a1224] flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 hover:opacity-80 transition-opacity">NV</button>
+              className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C41E3A] to-[#8a1224] flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 hover:opacity-80 transition-opacity">{initials(user.full_name)}</button>
             <button onClick={onProfile} className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
-              <div className="text-white text-xs font-semibold truncate whitespace-nowrap">Nguyễn Văn An</div>
-              <div className="text-white/35 text-[10px] truncate whitespace-nowrap">Chuyên viên pháp chế</div>
+              <div className="text-white text-xs font-semibold truncate whitespace-nowrap">{user.full_name}</div>
+              <div className="text-white/35 text-[10px] truncate whitespace-nowrap">{user.position || (user.role === "ADMIN" ? "Quản trị viên" : "Người dùng")}</div>
             </button>
-            <button className="text-white/30 hover:text-white/70 transition-colors p-1 rounded flex-shrink-0">
+            <button onClick={onLogout} title="Đăng xuất" className="text-white/30 hover:text-white/70 transition-colors p-1 rounded flex-shrink-0">
               <LogOut className="w-3.5 h-3.5" />
             </button>
           </div>
         ) : (
           <div className="flex justify-center">
             <button onClick={onProfile} title="Thông tin cá nhân"
-              className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C41E3A] to-[#8a1224] flex items-center justify-center text-white text-[10px] font-bold hover:opacity-80 transition-opacity">NV</button>
+              className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C41E3A] to-[#8a1224] flex items-center justify-center text-white text-[10px] font-bold hover:opacity-80 transition-opacity">{initials(user.full_name)}</button>
           </div>
         )}
       </div>
@@ -1158,14 +1211,14 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onProfile, onImport 
 
 // ─── HEADER ──────────────────────────────────────────────────────────────────
 
-function Header({ title, sidebarW }: { title: string; sidebarW: number }) {
+function Header({ title, sidebarW, documents }: { title: string; sidebarW: number; documents: DocumentView[] }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [showNotif, setShowNotif] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
   const allDocs = [
-    ...MY_DOCUMENTS.map(d => ({ ...d, source: "mine" as const })),
+    ...documents.map(d => ({ ...d, source: "mine" as const })),
     ...LEGAL_LIBRARY.map(d => ({ id: d.id, name: d.name, type: d.category, date: String(d.year), month: "", year: d.year, source: "library" as const })),
   ];
   const results = searchQuery.length > 1
@@ -1212,16 +1265,16 @@ function Header({ title, sidebarW }: { title: string; sidebarW: number }) {
       <div className="relative">
         <button onClick={() => setShowNotif(v => !v)} className="relative p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
           <Bell className="w-4 h-4" />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#C41E3A] rounded-full" />
+          {documents.length > 0 && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#C41E3A] rounded-full" />}
         </button>
         {showNotif && (
           <div className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-2xl shadow-xl z-30 w-80 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wide">Thông báo</h3>
-              <span className="text-[10px] text-[#C41E3A] font-semibold">3 mới</span>
+              <span className="text-[10px] text-[#C41E3A] font-semibold">{Math.min(documents.length, 3)} mới</span>
             </div>
             <div className="max-h-72 overflow-y-auto">
-              {MY_DOCUMENTS.slice(0, 3).map((doc, i) => (
+              {documents.slice(0, 3).map((doc, i) => (
                 <div key={i} className="flex items-start gap-3 px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer">
                   <div className="w-8 h-8 bg-[#C41E3A]/10 rounded-lg flex items-center justify-center flex-shrink-0">
                     <FileText className="w-3.5 h-3.5 text-[#C41E3A]" />
@@ -1233,6 +1286,9 @@ function Header({ title, sidebarW }: { title: string; sidebarW: number }) {
                   <div className="w-1.5 h-1.5 bg-[#C41E3A] rounded-full flex-shrink-0 mt-1.5" />
                 </div>
               ))}
+              {documents.length === 0 && (
+                <div className="px-4 py-8 text-center text-xs text-gray-400">Chưa có tài liệu mới.</div>
+              )}
             </div>
             <button onClick={() => setShowNotif(false)} className="w-full py-2.5 text-center text-xs font-semibold text-[#C41E3A] hover:bg-gray-50 transition-colors">
               Xem tất cả thông báo
@@ -1245,7 +1301,7 @@ function Header({ title, sidebarW }: { title: string; sidebarW: number }) {
   );
 }
 
-function MainLayout({ children, active, title, onNavigate, collapsed, onToggle, onProfile, onImport }: {
+function MainLayout({ children, active, title, onNavigate, collapsed, onToggle, onProfile, user, documents, onLogout }: {
   children: React.ReactNode;
   active: string;
   title: string;
@@ -1253,13 +1309,15 @@ function MainLayout({ children, active, title, onNavigate, collapsed, onToggle, 
   collapsed: boolean;
   onToggle: () => void;
   onProfile: () => void;
-  onImport: () => void;
+  user: UserPublic;
+  documents: DocumentView[];
+  onLogout: () => void;
 }) {
   const W = collapsed ? 64 : 232;
   return (
     <div className="min-h-screen bg-[#F4F5F7]">
-      <Sidebar active={active} onNavigate={onNavigate} collapsed={collapsed} onToggle={onToggle} onProfile={onProfile} onImport={onImport} />
-      <Header title={title} sidebarW={W} />
+      <Sidebar active={active} onNavigate={onNavigate} collapsed={collapsed} onToggle={onToggle} onProfile={onProfile} user={user} onLogout={onLogout} />
+      <Header title={title} sidebarW={W} documents={documents} />
       <main className="pt-14 min-h-screen transition-all duration-300" style={{ marginLeft: W }}>
         <div className="p-6">{children}</div>
       </main>
@@ -1269,14 +1327,22 @@ function MainLayout({ children, active, title, onNavigate, collapsed, onToggle, 
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
 
-function LoginScreen({ onLogin }: { onLogin: () => void }) {
-  const [email, setEmail] = useState("");
+function LoginScreen({ onLogin }: { onLogin: (identifier: string, password: string) => Promise<void> }) {
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const handleSubmit = (e: React.FormEvent) => {
+  const [error, setError] = useState<string | null>(null);
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => { setLoading(false); onLogin(); }, 1400);
+    setError(null);
+    try {
+      await onLogin(identifier, password);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Không thể đăng nhập vào hệ thống.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -1296,21 +1362,21 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Tài khoản</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@congty.vn"
+              <input type="text" value={identifier} onChange={e => setIdentifier(e.target.value)} placeholder="Tên đăng nhập hoặc email" autoComplete="username" required
                 className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#C41E3A]/20 focus:border-[#C41E3A] transition-all bg-gray-50/70" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Mật khẩu</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••"
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" required
                 className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#C41E3A]/20 focus:border-[#C41E3A] transition-all bg-gray-50/70" />
             </div>
-            <div className="flex items-center justify-between text-xs pt-1">
-              <label className="flex items-center gap-2 text-gray-600 cursor-pointer select-none">
-                <input type="checkbox" style={{ accentColor: "#C41E3A" }} />Ghi nhớ đăng nhập
-              </label>
-              <a href="#" className="text-[#C41E3A] font-semibold hover:underline">Quên mật khẩu?</a>
-            </div>
-            <button type="submit" disabled={loading}
+            {error && (
+              <div className="flex items-start gap-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-xs text-red-700">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />{error}
+              </div>
+            )}
+            <p className="text-[10px] text-gray-400">Phiên đăng nhập được lưu trong tab hiện tại và dùng API bảo mật <code>/api/v1</code>.</p>
+            <button type="submit" disabled={loading || !identifier.trim() || !password}
               className="w-full bg-[#C41E3A] hover:bg-[#a8172f] disabled:opacity-60 text-white py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-[#C41E3A]/25 mt-2">
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
               {loading ? "Đang xác thực..." : "Đăng nhập"}
@@ -1325,16 +1391,56 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 
-function DashboardScreen({ onNavigate }: { onNavigate: (s: Screen) => void }) {
+function DashboardScreen({ onNavigate, documents }: { onNavigate: (s: Screen) => void; documents: DocumentView[] }) {
   const [baoCaoFile, setBaoCaoFile] = useState<string | null>(null);
   const [vanBanFile, setVanBanFile] = useState<string | null>(null);
   const baoCaoRef = useRef<HTMLInputElement>(null);
   const vanBanRef = useRef<HTMLInputElement>(null);
   const CARDS = [
-    { id: "documents", title: "Tài liệu của tôi", desc: "Quản lý và tra cứu toàn bộ tài liệu đã phân tích trong hệ thống.", icon: FileText, count: "24 tài liệu" },
-    { id: "library", title: "Thư viện pháp luật", desc: "Tra cứu toàn bộ văn bản pháp luật hiện hành và đã hết hiệu lực.", icon: Scale, count: "1.240 văn bản" },
-    { id: "notebook", title: "Sổ tay kiến thức", desc: "Lưu trữ thuật ngữ và định nghĩa pháp lý được trích xuất tự động.", icon: BookMarked, count: "87 mục từ" },
+    { id: "documents", title: "Tài liệu của tôi", desc: "Quản lý và tra cứu tài liệu thuộc phạm vi tài khoản hiện tại.", icon: FileText, count: `${documents.length} tài liệu` },
+    { id: "library", title: "Thư viện pháp luật", desc: "Dữ liệu tham khảo giao diện; backend chưa cung cấp endpoint tương ứng.", icon: Scale, count: "Dữ liệu mẫu" },
+    { id: "notebook", title: "Sổ tay kiến thức", desc: "Dữ liệu tham khảo giao diện; backend chưa cung cấp endpoint tương ứng.", icon: BookMarked, count: "Dữ liệu mẫu" },
   ];
+
+  // The secure v1 API intentionally exposes document reads only. Keep the
+  // prototype uploader out of the active UI until a tenant-scoped endpoint exists.
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100">
+            <AlertTriangle className="h-4 w-4 text-amber-700" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-amber-900">Upload và phân tích chưa khả dụng</h3>
+            <p className="mt-1 text-xs leading-relaxed text-amber-800">
+              Backend bảo mật <code>/api/v1</code> hiện chỉ hỗ trợ đăng nhập và đọc tài liệu. Chức năng upload/phân tích đã được khóa để không tạo dữ liệu giả trên frontend.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-4">
+        {CARDS.map(({ id, title, desc, icon: Icon, count }) => (
+          <div key={id} className="group rounded-2xl border border-black/[0.05] bg-white p-5 transition-all duration-200 hover:shadow-lg hover:shadow-black/[0.06]">
+            <div className="mb-4 flex items-start justify-between">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0F1623] shadow-sm transition-colors duration-200 group-hover:bg-[#C41E3A]">
+                <Icon className="h-5 w-5 text-white" />
+              </div>
+              <span className="rounded-full bg-gray-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{count}</span>
+            </div>
+            <h3 className="mb-1.5 text-sm font-bold text-gray-900">{title}</h3>
+            <p className="mb-4 text-xs leading-relaxed text-gray-500">{desc}</p>
+            <button onClick={() => onNavigate(id as Screen)} className="flex items-center gap-1.5 text-xs font-bold text-[#C41E3A] transition-all duration-200 hover:gap-3">
+              Truy cập <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  /* Legacy prototype uploader retained below for design reference only. */
+  /* c8 ignore start */
   return (
     <div className="space-y-5">
       <div className="relative rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden">
@@ -1443,20 +1549,33 @@ function DashboardScreen({ onNavigate }: { onNavigate: (s: Screen) => void }) {
       </div>
     </div>
   );
+  /* c8 ignore stop */
 }
 
 // ─── MY DOCUMENTS ─────────────────────────────────────────────────────────────
 
-function MyDocumentsScreen({ onNavigate }: { onNavigate: (s: Screen) => void }) {
-  const [year, setYear] = useState("2025");
+function MyDocumentsScreen({ documents }: { documents: DocumentView[] }) {
+  const years = Array.from(new Set(documents.map(document => document.year))).sort((a, b) => b - a);
+  const [year, setYear] = useState(() => String(years[0] ?? new Date().getFullYear()));
   const [open, setOpen] = useState(false);
-  const grouped = ["Tháng 7", "Tháng 8"].map(m => ({ month: m, docs: MY_DOCUMENTS.filter(d => d.month === m && d.year.toString() === year) }));
+  const documentsInYear = documents.filter(document => String(document.year) === year);
+  const grouped = MONTH_NAMES
+    .map(month => ({ month, docs: documentsInYear.filter(document => document.month === month) }))
+    .filter(group => group.docs.length > 0)
+    .reverse();
+
+  useEffect(() => {
+    if (years.length > 0 && !years.some(value => String(value) === year)) {
+      setYear(String(years[0]));
+    }
+  }, [documents, year]);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Tài liệu của tôi</h2>
-          <p className="text-sm text-gray-500 mt-0.5">{MY_DOCUMENTS.filter(d => d.year.toString() === year).length} tài liệu trong năm {year}</p>
+          <p className="text-sm text-gray-500 mt-0.5">{documentsInYear.length} tài liệu trong năm {year}</p>
         </div>
         <div className="relative">
           <button onClick={() => setOpen(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 hover:border-gray-300 shadow-sm">
@@ -1464,7 +1583,7 @@ function MyDocumentsScreen({ onNavigate }: { onNavigate: (s: Screen) => void }) 
           </button>
           {open && (
             <div className="absolute right-0 mt-1.5 bg-white border border-gray-200 rounded-xl shadow-xl z-10 overflow-hidden py-1">
-              {["2023", "2024", "2025"].map(y => (
+              {(years.length > 0 ? years : [Number(year)]).map(value => String(value)).map(y => (
                 <button key={y} onClick={() => { setYear(y); setOpen(false); }}
                   className={`block w-full text-left px-4 py-2 text-sm hover:bg-gray-50 ${year === y ? "text-[#C41E3A] font-bold" : "text-gray-700"}`}>{y}</button>
               ))}
@@ -1472,6 +1591,13 @@ function MyDocumentsScreen({ onNavigate }: { onNavigate: (s: Screen) => void }) 
           )}
         </div>
       </div>
+      {documents.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-6 py-16 text-center">
+          <FileText className="mx-auto mb-3 h-8 w-8 text-gray-300" />
+          <p className="text-sm font-semibold text-gray-700">Chưa có tài liệu</p>
+          <p className="mt-1 text-xs text-gray-400">Danh sách được lấy trực tiếp từ <code>/api/v1/documents</code>.</p>
+        </div>
+      ) : (
       <div className="space-y-8">
         {grouped.map(({ month, docs }) => docs.length > 0 && (
           <div key={month}>
@@ -1483,8 +1609,8 @@ function MyDocumentsScreen({ onNavigate }: { onNavigate: (s: Screen) => void }) 
             </div>
             <div className="grid grid-cols-3 gap-3 ml-5">
               {docs.map(doc => (
-                <div key={doc.id} onClick={() => onNavigate("processing")}
-                  className="bg-white border border-black/[0.05] rounded-xl p-4 hover:shadow-md hover:border-[#C41E3A]/20 cursor-pointer transition-all group">
+                <div key={doc.id}
+                  className="group rounded-xl border border-black/[0.05] bg-white p-4 transition-all hover:border-[#C41E3A]/20 hover:shadow-md">
                   <div className="flex items-start gap-3">
                     <div className="w-9 h-9 bg-gray-50 group-hover:bg-[#C41E3A]/8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors">
                       <FileText className="w-4 h-4 text-gray-300 group-hover:text-[#C41E3A] transition-colors" />
@@ -1492,7 +1618,7 @@ function MyDocumentsScreen({ onNavigate }: { onNavigate: (s: Screen) => void }) 
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-gray-800 line-clamp-2 mb-2.5 leading-relaxed">{doc.name}</p>
                       <div className="flex items-center justify-between gap-2">
-                        <DocTypeBadge type={doc.type} />
+                        <StatusPill status={doc.status} />
                         <span className="text-[9px] text-gray-400 font-mono">{doc.date}</span>
                       </div>
                     </div>
@@ -1503,6 +1629,7 @@ function MyDocumentsScreen({ onNavigate }: { onNavigate: (s: Screen) => void }) 
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }
@@ -1559,7 +1686,6 @@ function LegalLibraryScreen({ onNavigate }: { onNavigate: (s: Screen) => void })
         law={selectedLaw}
         onBack={() => setSelectedLaw(null)}
         onSelectLaw={setSelectedLaw}
-        onGoToTree={() => onNavigate("processing")}
       />
     );
   }
@@ -1569,7 +1695,7 @@ function LegalLibraryScreen({ onNavigate }: { onNavigate: (s: Screen) => void })
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Thư viện pháp luật</h2>
-          <p className="text-sm text-gray-500 mt-0.5">{filtered.length} văn bản</p>
+          <p className="text-sm text-gray-500 mt-0.5">{filtered.length} văn bản mẫu cục bộ · backend chưa có endpoint thư viện</p>
         </div>
       </div>
       <div className="bg-white border border-black/[0.05] rounded-2xl p-4 mb-5 flex items-center gap-3 flex-wrap shadow-sm">
@@ -1633,10 +1759,10 @@ function KnowledgeNotebookScreen() {
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Sổ tay kiến thức</h2>
-            <p className="text-sm text-gray-500 mt-0.5">{filtered.length} mục từ pháp lý</p>
+            <p className="text-sm text-gray-500 mt-0.5">{filtered.length} mục từ mẫu cục bộ · backend chưa có endpoint sổ tay</p>
           </div>
-          <button className="flex items-center gap-2 px-4 py-2.5 bg-[#C41E3A] hover:bg-[#a8172f] text-white rounded-xl text-xs font-bold transition-colors shadow-sm">
-            <Plus className="w-3.5 h-3.5" />Thêm mục từ
+          <button disabled title="Backend /api/v1 chưa hỗ trợ thêm mục từ" className="flex cursor-not-allowed items-center gap-2 rounded-xl bg-gray-100 px-4 py-2.5 text-xs font-bold text-gray-400">
+            <Plus className="w-3.5 h-3.5" />Thêm mục từ chưa mở
           </button>
         </div>
         <div className="flex items-center gap-3 mb-5 flex-wrap">
@@ -1825,7 +1951,13 @@ function TreeDiagram({ onSelect, selectedId }: {
 
 // ─── WHITEBOARD SCREEN ────────────────────────────────────────────────────────
 
-function WhiteboardScreen({ onNavigate, importData, onProfile, onImport }: { onNavigate: (s: Screen) => void; importData: ImportData | null; onProfile: () => void; onImport: () => void }) {
+function WhiteboardScreen({ onNavigate, importData, onProfile, accountUser, onLogout }: {
+  onNavigate: (s: Screen) => void;
+  importData: ImportData | null;
+  onProfile: () => void;
+  accountUser: UserPublic;
+  onLogout: () => void;
+}) {
   const [zoom, setZoom] = useState(0.9);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -1990,7 +2122,7 @@ function WhiteboardScreen({ onNavigate, importData, onProfile, onImport }: { onN
   return (
     <div className="fixed inset-0 overflow-hidden" style={{ background: "#F0F1F3" }}>
       {/* ── Sidebar (collapsed, same as main app) ── */}
-      <Sidebar active="tree" onNavigate={onNavigate} collapsed={true} onToggle={() => {}} onProfile={onProfile} onImport={onImport} />
+      <Sidebar active="tree" onNavigate={onNavigate} collapsed={true} onToggle={() => {}} onProfile={onProfile} user={accountUser} onLogout={onLogout} />
 
       {/* ── Top bar ── */}
       <div className="fixed top-0 right-0 h-14 bg-white border-b border-black/[0.06] flex items-center pr-5 z-20 shadow-sm" style={{ left: SIDEBAR_W }}>
@@ -2334,39 +2466,139 @@ const TITLES: Record<Screen, string> = {
 };
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("login");
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [screen, setScreen] = useState<Screen>("dashboard");
   const [collapsed, setCollapsed] = useState(true);
   const [showProfile, setShowProfile] = useState(false);
-  const [showImport, setShowImport] = useState(false);
-  const [importData, setImportData] = useState<ImportData | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserPublic | null>(null);
+  const [documents, setDocuments] = useState<DocumentView[]>([]);
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [booting, setBooting] = useState(true);
 
   const navigate = (s: Screen) => setScreen(s);
-  const handleImportSubmit = (data: ImportData) => { setImportData(data); setScreen("processing"); };
 
-  if (!loggedIn) return <LoginScreen onLogin={() => { setLoggedIn(true); setScreen("dashboard"); }} />;
+  const loadDocuments = async () => {
+    try {
+      const response = await listDocuments();
+      setDocuments(response.map(toDocumentView));
+      setDataError(null);
+    } catch (error) {
+      setDocuments([]);
+      setDataError(error instanceof Error ? error.message : "Không thể tải danh sách tài liệu.");
+    }
+  };
 
-  if (screen === "tree") return <WhiteboardScreen onNavigate={navigate} importData={importData} onProfile={() => setShowProfile(true)} onImport={() => setShowImport(true)} />;
+  useEffect(() => {
+    let cancelled = false;
 
-  if (screen === "processing") return (
-    <>
-      <MainLayout active="dashboard" title="Đang xử lý tài liệu" onNavigate={navigate} collapsed={collapsed} onToggle={() => setCollapsed(v => !v)} onProfile={() => setShowProfile(true)} onImport={() => setShowImport(true)}>
-        <div className="h-96 flex items-center justify-center"><p className="text-gray-400 text-sm">Đang phân tích...</p></div>
-      </MainLayout>
-      <ProcessingScreen onComplete={() => setScreen("tree")} />
-    </>
-  );
+    const restoreSession = async () => {
+      if (!hasStoredSession()) {
+        setBooting(false);
+        return;
+      }
+
+      try {
+        const user = await getCurrentUser();
+        if (cancelled) return;
+        setCurrentUser(user);
+        try {
+          const response = await listDocuments();
+          if (!cancelled) {
+            setDocuments(response.map(toDocumentView));
+            setDataError(null);
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setDocuments([]);
+            setDataError(error instanceof Error ? error.message : "Không thể tải danh sách tài liệu.");
+          }
+        }
+      } catch {
+        clearSession();
+        if (!cancelled) setCurrentUser(null);
+      } finally {
+        if (!cancelled) setBooting(false);
+      }
+    };
+
+    const handleSessionExpired = () => {
+      setCurrentUser(null);
+      setDocuments([]);
+      setShowProfile(false);
+      setScreen("dashboard");
+    };
+
+    window.addEventListener("vads:session-expired", handleSessionExpired);
+    void restoreSession();
+    return () => {
+      cancelled = true;
+      window.removeEventListener("vads:session-expired", handleSessionExpired);
+    };
+  }, []);
+
+  const handleLogin = async (identifier: string, password: string) => {
+    await login(identifier.trim(), password);
+    try {
+      const user = await getCurrentUser();
+      setCurrentUser(user);
+      setScreen("dashboard");
+      await loadDocuments();
+      if (user.must_change_password) setShowProfile(true);
+    } catch (error) {
+      clearSession();
+      setCurrentUser(null);
+      throw error;
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      // The API client clears the local session even if the network logout fails.
+    } finally {
+      setCurrentUser(null);
+      setDocuments([]);
+      setDataError(null);
+      setShowProfile(false);
+      setScreen("dashboard");
+    }
+  };
+
+  const handlePasswordChanged = () => {
+    setShowProfile(false);
+    setCurrentUser(null);
+    setDocuments([]);
+    setDataError(null);
+    setScreen("dashboard");
+  };
+
+  if (booting) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#F4F5F7] text-sm text-gray-500">
+        <Loader2 className="mr-2 h-5 w-5 animate-spin text-[#C41E3A]" />Đang khôi phục phiên đăng nhập...
+      </div>
+    );
+  }
+
+  if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
+
+  const activeScreen = screen === "processing" || screen === "tree" ? "dashboard" : screen;
 
   return (
     <>
-      <MainLayout active={screen} title={TITLES[screen]} onNavigate={navigate} collapsed={collapsed} onToggle={() => setCollapsed(v => !v)} onProfile={() => setShowProfile(true)} onImport={() => setShowImport(true)}>
-        {screen === "dashboard" && <DashboardScreen onNavigate={navigate} />}
-        {screen === "documents" && <MyDocumentsScreen onNavigate={navigate} />}
-        {screen === "library" && <LegalLibraryScreen onNavigate={navigate} />}
-        {screen === "notebook" && <KnowledgeNotebookScreen />}
+      <MainLayout active={activeScreen} title={TITLES[activeScreen]} onNavigate={navigate} collapsed={collapsed} onToggle={() => setCollapsed(v => !v)} onProfile={() => setShowProfile(true)} user={currentUser} documents={documents} onLogout={handleLogout}>
+        {dataError && (
+          <div className="mb-5 flex items-start justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-700">
+            <span className="flex items-start gap-2"><AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />{dataError}</span>
+            <button onClick={() => void loadDocuments()} className="whitespace-nowrap font-bold hover:underline">Thử lại</button>
+          </div>
+        )}
+        {activeScreen === "dashboard" && <DashboardScreen onNavigate={navigate} documents={documents} />}
+        {activeScreen === "documents" && <MyDocumentsScreen documents={documents} />}
+        {activeScreen === "library" && <LegalLibraryScreen onNavigate={navigate} />}
+        {activeScreen === "notebook" && <KnowledgeNotebookScreen />}
       </MainLayout>
-      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
-      {showImport && <ImportModal onClose={() => setShowImport(false)} onSubmit={handleImportSubmit} />}
+      {showProfile && <ProfileModal user={currentUser} onClose={() => setShowProfile(false)} onPasswordChanged={handlePasswordChanged} />}
     </>
   );
 }

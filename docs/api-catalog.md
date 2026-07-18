@@ -1,4 +1,4 @@
-# VADS / Regulatory Change Intelligence — Full API Catalog
+# VADS / Regulatory Change Intelligence — Consolidated API Catalog
 
 Base URL: `http://localhost:8000`
 
@@ -8,7 +8,37 @@ Interactive specification:
 - ReDoc: `GET /api/redoc`
 - OpenAPI JSON: `GET /api/openapi.json`
 
-Normal JSON responses use the shared envelope:
+## Secure API (enabled by default)
+
+The frontend uses the tenant-scoped `/api/v1` API. These endpoints return their response models
+directly and use bearer access tokens plus rotating refresh tokens.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/v1/auth/login` | Sign in with username or email |
+| POST | `/api/v1/auth/refresh` | Rotate a refresh token and issue a new token pair |
+| POST | `/api/v1/auth/logout` | Revoke the current session |
+| POST | `/api/v1/auth/logout-all` | Revoke all sessions for the current user |
+| POST | `/api/v1/auth/change-password` | Change password and revoke existing sessions |
+| GET | `/api/v1/auth/me` | Read the current user profile |
+| POST | `/api/v1/admin/users` | Create a commune-scoped user |
+| GET | `/api/v1/admin/users` | List visible users |
+| GET | `/api/v1/admin/users/{user_id}` | Read a visible user |
+| PATCH | `/api/v1/admin/users/{user_id}/lock` | Lock a user |
+| PATCH | `/api/v1/admin/users/{user_id}/unlock` | Unlock a user |
+| POST | `/api/v1/admin/users/{user_id}/reset-password` | Reset a user's password |
+| GET | `/api/v1/staff-directory` | List active staff visible to the caller |
+| GET | `/api/v1/documents` | List documents visible to the caller |
+| GET | `/api/v1/documents/{document_id}` | Read a visible document |
+| DELETE | `/api/v1/documents/{document_id}` | Soft-delete an owned document |
+| POST | `/api/v1/documents/{document_id}/restore` | Restore a commune document (admin) |
+| GET | `/api/v1/admin/audit-logs` | List commune audit records (admin) |
+| GET | `/api/v1/admin/audit-logs/{audit_log_id}` | Read an audit record (admin) |
+
+## Legacy compatibility API (disabled by default)
+
+Set `VADS_LEGACY_API_ENABLED=true` only for tests or migration. Legacy JSON responses use the
+shared envelope:
 
 ```json
 {
@@ -25,7 +55,6 @@ Normal JSON responses use the shared envelope:
 |---|---|---|
 | GET | `/health/live` | API liveness |
 | POST | `/api/workspaces` | Create workspace |
-| GET | `/api/workspaces/{workspaceId}/dashboard` | Aggregated workspace dashboard |
 
 ## Core document ingestion and processing
 
@@ -41,7 +70,6 @@ Normal JSON responses use the shared envelope:
 | GET | `/api/documents/{documentId}/chunks` | Paginated chunks |
 | GET | `/api/documents/{documentId}/chunks/{chunkId}` | Chunk detail |
 | POST | `/api/documents/{documentId}/reprocess` | Retry document processing |
-| GET | `/api/documents/{documentId}/viewer-data` | Frontend viewer aggregation |
 
 ## Regulatory document intelligence
 
@@ -51,13 +79,13 @@ Normal JSON responses use the shared envelope:
 | GET | `/api/documents` | List regulatory documents; filter by `workspaceId` |
 | GET | `/api/documents/{documentId}/regulatory-profile` | Extracted regulatory metadata |
 | GET | `/api/documents/{documentId}/summary` | Evidence-backed summary/current values |
-| GET | `/api/documents/{documentId}/structured-sections` | Chapter/article/clause hierarchy |
 | GET | `/api/documents/{documentId}/versions` | All versions in the family |
 | GET | `/api/documents/{documentId}/timeline` | Values through time |
 | GET | `/api/documents/{documentId}/changes` | Typed semantic changes |
 | GET | `/api/documents/{documentId}/legal-relations` | Extracted legal citations and verification state |
 | POST | `/api/documents/{documentId}/analyze` | Run version diff, impact mapping and verification |
-| GET | `/api/documents/{documentId}/analysis-overview` | Frontend analysis aggregation |
+
+Structured content uses the canonical `GET /api/documents/{documentId}/sections` endpoint.
 
 `POST /api/documents` uses `multipart/form-data`:
 
@@ -90,11 +118,9 @@ Example metadata:
 | POST | `/api/projects` | Create project knowledge record |
 | GET | `/api/projects` | List projects; filter by `workspaceId` |
 | GET | `/api/projects/{projectId}` | Project detail |
-| GET | `/api/projects/{projectId}/impacts` | Project impact history |
-| GET | `/api/impacts` | All detected impacts |
+| GET | `/api/impacts` | Detected impacts; filter by `projectId` and/or `department` |
 | GET | `/api/impacts/{impactId}` | Impact, actions and two-sided evidence |
 | PATCH | `/api/impacts/{impactId}/review` | Accept/reject/request human review |
-| GET | `/api/departments/{departmentName}/impacts` | Department-specific impacts/actions |
 
 Impact review body:
 
@@ -156,9 +182,8 @@ actual URL accepts the same document ID value shown above.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/documents/{documentId}/index` | Build embedding index |
+| POST | `/api/documents/{documentId}/index` | Build embedding index; use `?rebuild=true` to replace it |
 | GET | `/api/documents/{documentId}/index/status` | Index progress |
-| POST | `/api/documents/{documentId}/index/rebuild` | Rebuild index |
 | POST | `/api/retrieval/search` | Hybrid semantic/keyword search with metadata filters |
 
 ## Chat Q&A
@@ -169,15 +194,22 @@ actual URL accepts the same document ID value shown above.
 | GET | `/api/chat/sessions/{sessionId}` | Session detail |
 | DELETE | `/api/chat/sessions/{sessionId}` | Delete session |
 | GET | `/api/chat/sessions/{sessionId}/messages` | Message history |
-| POST | `/api/chat/sessions/{sessionId}/messages` | Evidence-backed Q&A |
-| POST | `/api/chat/sessions/{sessionId}/messages/stream` | Server-sent event response |
+| POST | `/api/chat/sessions/{sessionId}/messages` | Evidence-backed Q&A; set `stream=true` or `Accept: text/event-stream` for SSE |
 
-## Meeting audio
+## Removed overlapping routes
 
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/api/meeting-sessions` | Create meeting session |
-| POST | `/api/meeting-sessions/{sessionId}/audio` | Upload audio |
-| GET | `/api/meeting-sessions/{sessionId}/transcript` | Structured transcript |
+| Removed path | Canonical replacement |
+|---|---|
+| `/api/workspaces/{workspaceId}/dashboard` | Query the underlying document/project resources |
+| `/api/documents/{documentId}/viewer-data` | `/pages`, `/sections`, and `/chunks` |
+| `/api/documents/{documentId}/analysis-overview` | Summary, graph, red-flag, and critical-question resources |
+| `/api/documents/{documentId}/structured-sections` | `/api/documents/{documentId}/sections` |
+| `/api/documents/{documentId}/index/rebuild` | `POST /api/documents/{documentId}/index?rebuild=true` |
+| `/api/chat/sessions/{sessionId}/messages/stream` | `POST /api/chat/sessions/{sessionId}/messages` with streaming enabled |
+| `/api/projects/{projectId}/impacts` | `GET /api/impacts?projectId=...` |
+| `/api/departments/{departmentName}/impacts` | `GET /api/impacts?department=...` |
+| `/api/meeting-sessions...` | Removed from the current product API |
 
-The running OpenAPI document is the source of truth and currently exposes **60 operations**.
+With the default configuration, OpenAPI exposes **20 operations**: health plus 19 secure v1
+operations. Compatibility mode exposes **68 operations** in total; the consolidated legacy
+catalog contributes 49 operations including the shared health endpoint.

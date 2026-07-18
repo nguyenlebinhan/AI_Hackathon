@@ -153,7 +153,10 @@ Thời hạn báo cáo: 30 ngày.
     idempotent_response = client.post(f"/api/documents/{new['documentId']}/analyze")
     assert idempotent_response.json()["data"]["run"]["id"] == run_id
 
-    department_response = client.get("/api/departments/Phòng Tài chính/impacts")
+    department_response = client.get(
+        "/api/impacts",
+        params={"department": "Phòng Tài chính"},
+    )
     assert department_response.status_code == 200
     assert department_response.json()["data"][0]["id"] == impact["id"]
 
@@ -175,7 +178,7 @@ Thời hạn báo cáo: 30 ngày.
     assert retried_run["id"] != run_id
     assert len(retried_run["tasks"]) == 8
 
-    history_response = client.get(f"/api/projects/{project_id}/impacts")
+    history_response = client.get("/api/impacts", params={"projectId": project_id})
     assert history_response.status_code == 200
     assert len(history_response.json()["data"]) == 2
 

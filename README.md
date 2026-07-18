@@ -9,8 +9,9 @@ Backend Python 3.12 cho phần việc **Người 1** của VADS: tiếp nhận P
 xử lý nền qua Celery, trích xuất trang và OCR có chọn lọc, nhận diện cấu trúc pháp lý,
 tạo `DocumentChunk` và cung cấp read interface cho các module phía sau.
 
-Repository này không triển khai summary AI, knowledge graph, red flag, embedding,
-reranking, chat Q&A hoặc frontend.
+Frontend Vite nằm trong `frontend/` và dùng API bảo mật `/api/v1` cho đăng nhập, hồ sơ và
+danh sách tài liệu. Các màn hình thư viện/sổ tay còn là dữ liệu mẫu cho tới khi backend có
+endpoint tenant-scoped tương ứng.
 
 ## Pipeline
 
@@ -220,10 +221,10 @@ python -c "from app.config.settings import Settings; from app.model_gateway.fpt_
 1. Chạy backend bằng `docker compose up --build`.
 2. Import collection [`docs/postman/VADS.postman_collection.json`](docs/postman/VADS.postman_collection.json).
 3. Import environment [`docs/postman/VADS.postman_environment.json`](docs/postman/VADS.postman_environment.json) và chọn **VADS Local**.
-4. Chạy lần lượt các folder. Ở request upload, chọn một file PDF/DOCX; ở request audio, chọn file âm thanh.
+4. Chạy lần lượt các folder. Ở request upload, chọn một file PDF/DOCX.
 
 Collection tự lưu `workspaceId`, `documentId`, `chunkId`, `workflowId`, `summaryId`,
-`chatSessionId` và `meetingSessionId` từ response. Có thể import trực tiếp OpenAPI từ
+`chatSessionId` từ response. Có thể import trực tiếp OpenAPI từ
 `http://localhost:8000/api/openapi.json`; Swagger UI nằm tại `http://localhost:8000/api/docs`.
 
 ## Regulatory Change Intelligence vertical slice
@@ -251,4 +252,4 @@ python scripts/generate_regulatory_demo_documents.py
 - [`Regulatory Change Postman collection`](docs/postman/Regulatory-Change-Vertical-Slice.postman_collection.json)
 - [`VADS Local environment`](docs/postman/VADS.postman_environment.json)
 
-Danh mục đầy đủ 60 API operations: [`docs/api-catalog.md`](docs/api-catalog.md).
+Danh mục API bảo mật và 49 operation legacy đã hợp nhất: [`docs/api-catalog.md`](docs/api-catalog.md).

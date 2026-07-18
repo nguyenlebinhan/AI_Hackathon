@@ -17,7 +17,6 @@ from app.regulatory_change.schemas import (
     ProjectCreate,
     ProjectData,
     RegulatoryDocumentData,
-    RegulatorySectionData,
     RegulatoryUploadData,
     RegulatoryUploadMetadata,
     TimelineEntry,
@@ -88,17 +87,6 @@ def get_regulatory_summary(
     service: Annotated[RegulatoryChangeService, Depends(get_regulatory_service)],
 ) -> ApiSuccessResponse[dict[str, Any]]:
     return ApiSuccessResponse(data=service.summary(document_id))
-
-
-@router.get(
-    "/documents/{documentId}/structured-sections",
-    response_model=ApiSuccessResponse[list[RegulatorySectionData]],
-)
-def get_regulatory_sections(
-    document_id: Annotated[str, Path(alias="documentId", min_length=1, max_length=40)],
-    service: Annotated[RegulatoryChangeService, Depends(get_regulatory_service)],
-) -> ApiSuccessResponse[list[RegulatorySectionData]]:
-    return ApiSuccessResponse(data=service.sections(document_id))
 
 
 @router.get(
@@ -188,23 +176,20 @@ def get_project(
     return ApiSuccessResponse(data=service.get_project(project_id))
 
 
-@router.get(
-    "/projects/{projectId}/impacts",
-    response_model=ApiSuccessResponse[list[ImpactData]],
-)
-def get_project_impacts(
-    project_id: Annotated[str, Path(alias="projectId", min_length=1, max_length=40)],
-    service: Annotated[RegulatoryChangeService, Depends(get_regulatory_service)],
-) -> ApiSuccessResponse[list[ImpactData]]:
-    service.get_project(project_id)
-    return ApiSuccessResponse(data=service.impacts(project_id=project_id))
-
-
 @router.get("/impacts", response_model=ApiSuccessResponse[list[ImpactData]])
 def list_impacts(
     service: Annotated[RegulatoryChangeService, Depends(get_regulatory_service)],
+    project_id: Annotated[
+        str | None,
+        Query(alias="projectId", max_length=40),
+    ] = None,
+    department: Annotated[str | None, Query(max_length=300)] = None,
 ) -> ApiSuccessResponse[list[ImpactData]]:
-    return ApiSuccessResponse(data=service.impacts())
+    if project_id:
+        service.get_project(project_id)
+    return ApiSuccessResponse(
+        data=service.impacts(project_id=project_id, department=department)
+    )
 
 
 @router.get("/impacts/{impactId}", response_model=ApiSuccessResponse[ImpactData])
@@ -229,17 +214,6 @@ def review_impact(
             note=payload.note,
         )
     )
-
-
-@router.get(
-    "/departments/{departmentId}/impacts",
-    response_model=ApiSuccessResponse[list[ImpactData]],
-)
-def get_department_impacts(
-    department_id: Annotated[str, Path(alias="departmentId", min_length=1, max_length=300)],
-    service: Annotated[RegulatoryChangeService, Depends(get_regulatory_service)],
-) -> ApiSuccessResponse[list[ImpactData]]:
-    return ApiSuccessResponse(data=service.impacts(department=department_id))
 
 
 @router.get("/agent-runs/{runId}", response_model=ApiSuccessResponse[AgentRunData])

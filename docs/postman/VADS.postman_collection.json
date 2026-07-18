@@ -40,8 +40,7 @@
             "body": {"mode": "raw", "raw": "{\n  \"name\": \"Phân tích dự thảo\",\n  \"description\": \"Workspace kiểm thử Postman\"\n}"},
             "url": "{{baseUrl}}/api/workspaces"
           }
-        },
-        {"name": "Workspace dashboard", "request": {"method": "GET", "url": "{{baseUrl}}/api/workspaces/{{workspaceId}}/dashboard"}}
+        }
       ]
     },
     {
@@ -67,7 +66,6 @@
           "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{documentId}}/chunks"}
         },
         {"name": "Get chunk", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{documentId}}/chunks/{{chunkId}}"}},
-        {"name": "Viewer data", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{documentId}}/viewer-data"}},
         {"name": "Reprocess document", "request": {"method": "POST", "url": "{{baseUrl}}/api/documents/{{documentId}}/reprocess"}},
         {"name": "Delete document (run last)", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/documents/{{documentId}}"}}
       ]
@@ -92,8 +90,7 @@
         {"name": "Get knowledge graph", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{documentId}}/knowledge-graph"}},
         {"name": "Get red flags", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{documentId}}/red-flags?include_suppressed=false"}},
         {"name": "Generate critical questions", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"privateProcessing\": false\n}"}, "url": "{{baseUrl}}/api/documents/{{documentId}}/critical-questions/generate"}},
-        {"name": "Get critical questions", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{documentId}}/critical-questions"}},
-        {"name": "Analysis overview", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{documentId}}/analysis-overview"}}
+        {"name": "Get critical questions", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{documentId}}/critical-questions"}}
       ]
     },
     {
@@ -101,7 +98,7 @@
       "item": [
         {"name": "Index document", "request": {"method": "POST", "url": "{{baseUrl}}/api/documents/{{documentId}}/index"}},
         {"name": "Index status", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{documentId}}/index/status"}},
-        {"name": "Rebuild index", "request": {"method": "POST", "url": "{{baseUrl}}/api/documents/{{documentId}}/index/rebuild"}},
+        {"name": "Rebuild index", "request": {"method": "POST", "url": "{{baseUrl}}/api/documents/{{documentId}}/index?rebuild=true"}},
         {
           "name": "Hybrid retrieval",
           "request": {
@@ -124,20 +121,8 @@
         {"name": "Get chat session", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/sessions/{{chatSessionId}}"}},
         {"name": "List chat messages", "request": {"method": "GET", "url": "{{baseUrl}}/api/chat/sessions/{{chatSessionId}}/messages"}},
         {"name": "Send chat message", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"question\": \"Tóm tắt các điểm quan trọng\",\n  \"documentIds\": [\"{{documentId}}\"],\n  \"stream\": false\n}"}, "url": "{{baseUrl}}/api/chat/sessions/{{chatSessionId}}/messages"}},
-        {"name": "Stream chat message (SSE)", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Accept", "value": "text/event-stream"}], "body": {"mode": "raw", "raw": "{\n  \"question\": \"Điều khoản nào cần lưu ý?\",\n  \"documentIds\": [\"{{documentId}}\"],\n  \"stream\": true\n}"}, "url": "{{baseUrl}}/api/chat/sessions/{{chatSessionId}}/messages/stream"}},
+        {"name": "Stream chat message (SSE)", "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}, {"key": "Accept", "value": "text/event-stream"}], "body": {"mode": "raw", "raw": "{\n  \"question\": \"Điều khoản nào cần lưu ý?\",\n  \"documentIds\": [\"{{documentId}}\"],\n  \"stream\": true\n}"}, "url": "{{baseUrl}}/api/chat/sessions/{{chatSessionId}}/messages"}},
         {"name": "Delete chat session (run last)", "request": {"method": "DELETE", "url": "{{baseUrl}}/api/chat/sessions/{{chatSessionId}}"}}
-      ]
-    },
-    {
-      "name": "06 - Meeting",
-      "item": [
-        {
-          "name": "Create meeting session",
-          "event": [{"listen": "test", "script": {"exec": ["const body = pm.response.json();", "if (body.data && body.data.id) pm.environment.set('meetingSessionId', body.data.id);"]}}],
-          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\n  \"workspaceId\": \"{{workspaceId}}\",\n  \"title\": \"Cuộc họp kiểm thử\",\n  \"documentIds\": [\"{{documentId}}\"]\n}"}, "url": "{{baseUrl}}/api/meeting-sessions"}
-        },
-        {"name": "Upload meeting audio", "request": {"method": "POST", "body": {"mode": "formdata", "formdata": [{"key": "audio", "type": "file", "src": ""}]}, "url": "{{baseUrl}}/api/meeting-sessions/{{meetingSessionId}}/audio"}},
-        {"name": "Get transcript", "request": {"method": "GET", "url": "{{baseUrl}}/api/meeting-sessions/{{meetingSessionId}}/transcript"}}
       ]
     }
   ],

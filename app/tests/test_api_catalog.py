@@ -13,12 +13,6 @@ def test_openapi_exposes_complete_product_api(application: FastAPI) -> None:
         ("/api/retrieval/search", "post"),
         ("/api/workspaces/{workspaceId}/chat/sessions", "post"),
         ("/api/chat/sessions/{sessionId}/messages", "post"),
-        ("/api/chat/sessions/{sessionId}/messages/stream", "post"),
-        ("/api/meeting-sessions", "post"),
-        ("/api/meeting-sessions/{sessionId}/audio", "post"),
-        ("/api/workspaces/{workspaceId}/dashboard", "get"),
-        ("/api/documents/{documentId}/viewer-data", "get"),
-        ("/api/documents/{documentId}/analysis-overview", "get"),
         ("/api/documents/{document_id}/analysis", "post"),
         ("/api/documents", "post"),
         ("/api/documents", "get"),
@@ -27,7 +21,7 @@ def test_openapi_exposes_complete_product_api(application: FastAPI) -> None:
         ("/api/documents/{documentId}/changes", "get"),
         ("/api/documents/{documentId}/analyze", "post"),
         ("/api/projects", "post"),
-        ("/api/projects/{projectId}/impacts", "get"),
+        ("/api/impacts", "get"),
         ("/api/impacts/{impactId}/review", "patch"),
         ("/api/agent-runs/{runId}", "get"),
         ("/api/agent-runs/{runId}/retry", "post"),
@@ -38,6 +32,23 @@ def test_openapi_exposes_complete_product_api(application: FastAPI) -> None:
     for path, method in expected_operations:
         assert path in paths
         assert method in paths[path]
+
+    operation_count = sum(
+        method in {"get", "post", "put", "patch", "delete"}
+        for operations in paths.values()
+        for method in operations
+    )
+    secure_operation_count = sum(
+        method in {"get", "post", "put", "patch", "delete"}
+        for path, operations in paths.items()
+        if path.startswith("/api/v1/")
+        for method in operations
+    )
+
+    # Compatibility-mode tests expose the 49 consolidated legacy/health
+    # operations alongside the 19 tenant-scoped v1 operations.
+    assert secure_operation_count == 19
+    assert operation_count == 68
 
 
 def test_product_routes_use_unique_operation_ids(application: FastAPI) -> None:
@@ -66,11 +77,9 @@ def test_required_regulatory_change_api_is_complete(application: FastAPI) -> Non
         ("post", "/api/projects"),
         ("get", "/api/projects"),
         ("get", "/api/projects/{projectId}"),
-        ("get", "/api/projects/{projectId}/impacts"),
         ("get", "/api/impacts"),
         ("get", "/api/impacts/{impactId}"),
         ("patch", "/api/impacts/{impactId}/review"),
-        ("get", "/api/departments/{departmentId}/impacts"),
         ("get", "/api/users/me/context"),
         ("put", "/api/users/me/context"),
         ("get", "/api/agent-runs/{runId}"),
@@ -81,7 +90,43 @@ def test_required_regulatory_change_api_is_complete(application: FastAPI) -> Non
     assert missing == set()
 
 
-def test_product_session_and_dashboard_routes_are_callable(
+def test_meeting_audio_routes_are_not_exposed(application: FastAPI) -> None:
+    paths = application.openapi()["paths"]
+
+    assert not any(path.startswith("/api/meeting-sessions") for path in paths)
+
+
+def test_redundant_alias_routes_are_not_exposed(application: FastAPI) -> None:
+    paths = application.openapi()["paths"]
+    removed_paths = {
+        "/api/workspaces/{workspaceId}/dashboard",
+        "/api/documents/{documentId}/viewer-data",
+        "/api/documents/{documentId}/analysis-overview",
+        "/api/documents/{documentId}/structured-sections",
+        "/api/documents/{documentId}/index/rebuild",
+        "/api/chat/sessions/{sessionId}/messages/stream",
+        "/api/projects/{projectId}/impacts",
+        "/api/departments/{departmentId}/impacts",
+    }
+
+    assert removed_paths.isdisjoint(paths)
+
+
+def test_consolidated_routes_expose_filter_and_mode_parameters(application: FastAPI) -> None:
+    paths = application.openapi()["paths"]
+    index_parameters = {
+        parameter["name"]
+        for parameter in paths["/api/documents/{documentId}/index"]["post"]["parameters"]
+    }
+    impact_parameters = {
+        parameter["name"] for parameter in paths["/api/impacts"]["get"]["parameters"]
+    }
+
+    assert "rebuild" in index_parameters
+    assert {"projectId", "department"} <= impact_parameters
+
+
+def test_product_chat_route_is_callable(
     client: TestClient,
     workspace_id: str,
 ) -> None:
@@ -89,19 +134,6 @@ def test_product_session_and_dashboard_routes_are_callable(
         f"/api/workspaces/{workspace_id}/chat/sessions",
         json={"title": "Postman Q&A", "isPrivate": False},
     )
-    meeting_response = client.post(
-        "/api/meeting-sessions",
-        json={
-            "workspaceId": workspace_id,
-            "title": "Postman meeting",
-            "documentIds": [],
-        },
-    )
-    dashboard_response = client.get(f"/api/workspaces/{workspace_id}/dashboard")
 
     assert chat_response.status_code == 201
     assert chat_response.json()["data"]["workspaceId"] == workspace_id
-    assert meeting_response.status_code == 201
-    assert meeting_response.json()["data"]["workspaceId"] == workspace_id
-    assert dashboard_response.status_code == 200
-    assert dashboard_response.json()["data"]["workspaceId"] == workspace_id

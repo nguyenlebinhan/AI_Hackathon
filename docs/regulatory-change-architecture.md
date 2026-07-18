@@ -121,7 +121,6 @@ POST   /api/documents
 GET    /api/documents
 GET    /api/documents/{id}/regulatory-profile
 GET    /api/documents/{id}/summary
-GET    /api/documents/{id}/structured-sections
 GET    /api/documents/{id}/versions
 GET    /api/documents/{id}/timeline
 GET    /api/documents/{id}/changes
@@ -131,12 +130,10 @@ POST   /api/documents/{id}/analyze
 POST   /api/projects
 GET    /api/projects
 GET    /api/projects/{id}
-GET    /api/projects/{id}/impacts
 
-GET    /api/impacts
+GET    /api/impacts?projectId={id}&department={name}
 GET    /api/impacts/{id}
 PATCH  /api/impacts/{id}/review
-GET    /api/departments/{departmentName}/impacts
 
 GET    /api/agent-runs/{id}
 POST   /api/agent-runs/{id}/retry

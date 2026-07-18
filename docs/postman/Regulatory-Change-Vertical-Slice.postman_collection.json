@@ -85,7 +85,7 @@
         {"name": "List regulatory documents", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents?workspaceId={{workspaceId}}"}},
         {"name": "Regulatory profile", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{newDocumentId}}/regulatory-profile"}},
         {"name": "Summary", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{newDocumentId}}/summary"}},
-        {"name": "Structured sections", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{newDocumentId}}/structured-sections"}},
+        {"name": "Structured sections", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{newDocumentId}}/sections"}},
         {"name": "Versions", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{newDocumentId}}/versions"}},
         {"name": "Timeline", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{newDocumentId}}/timeline"}},
         {"name": "Changes", "request": {"method": "GET", "url": "{{baseUrl}}/api/documents/{{newDocumentId}}/changes"}},
@@ -97,10 +97,10 @@
       "item": [
         {"name": "List projects", "request": {"method": "GET", "url": "{{baseUrl}}/api/projects?workspaceId={{workspaceId}}"}},
         {"name": "Get project", "request": {"method": "GET", "url": "{{baseUrl}}/api/projects/{{projectId}}"}},
-        {"name": "Project impact history", "request": {"method": "GET", "url": "{{baseUrl}}/api/projects/{{projectId}}/impacts"}},
+        {"name": "Project impact history", "request": {"method": "GET", "url": "{{baseUrl}}/api/impacts?projectId={{projectId}}"}},
         {"name": "List impacts", "request": {"method": "GET", "url": "{{baseUrl}}/api/impacts"}},
         {"name": "Get impact", "request": {"method": "GET", "url": "{{baseUrl}}/api/impacts/{{impactId}}"}},
-        {"name": "Department impacts", "request": {"method": "GET", "url": "{{baseUrl}}/api/departments/Phòng Tài chính/impacts"}},
+        {"name": "Department impacts", "request": {"method": "GET", "url": "{{baseUrl}}/api/impacts?department=Phòng Tài chính"}},
         {"name": "Review impact", "request": {"method": "PATCH", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"status\":\"ACCEPTED\",\"reviewedBy\":\"legal-expert-001\",\"note\":\"Đã kiểm tra bằng chứng\"}"}, "url": "{{baseUrl}}/api/impacts/{{impactId}}/review"}}
       ]
     },
