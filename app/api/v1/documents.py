@@ -8,10 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.database import get_db
 from app.config.settings import Settings, get_settings
 from app.core.audit import RequestMetadata
-from app.core.permissions import Permission, UserRole
+from app.core.permissions import Permission
 from app.database.async_session import get_async_db
 from app.dependencies.permissions import require_permission
-from app.exceptions import AuthorizationError, NotFoundError
+from app.exceptions import NotFoundError
 from app.model.documents import Document
 from app.model.workspaces import Workspace, WorkspaceStatus
 from app.model.users import User
@@ -71,11 +71,6 @@ def upload_document(
     dispatcher: Annotated[TaskDispatcher, Depends(get_task_dispatcher)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DocumentUploadPublic:
-    if actor.role == UserRole.USER and not settings.user_document_upload_enabled:
-        raise AuthorizationError(
-            code="DOCUMENT_UPLOAD_DISABLED",
-            message="Chuc nang tai tai lieu cua nguoi dung dang bi tat.",
-        )
     workspace = _personal_workspace(session, actor)
     result = DocumentService(
         session,
