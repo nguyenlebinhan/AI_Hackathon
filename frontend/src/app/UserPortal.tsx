@@ -10,10 +10,32 @@ import {
   Maximize2, Copy, Mail, Users, Lock, BookOpen, Hash,
   User, Phone, MapPin, Save, FileUp, GripVertical, Briefcase, Layers,
 } from "lucide-react";
+import { changePassword, listDocuments, type DocumentPublic, type UserPublic } from "../api";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
 type Screen = "login" | "dashboard" | "documents" | "library" | "notebook" | "processing" | "tree";
+
+const STATUS_LABELS: Record<DocumentPublic["status"], string> = {
+  UPLOADED: "Đã tải lên",
+  QUEUED: "Đang chờ",
+  PROCESSING: "Đang xử lý",
+  COMPLETED: "Hoàn tất",
+  FAILED: "Xử lý lỗi",
+  CANCELLED: "Đã hủy",
+  NEEDS_REVIEW: "Cần kiểm tra",
+};
+
+const APPROVAL_LABELS: Record<DocumentPublic["approval_status"], string> = {
+  DRAFT: "Bản nháp",
+  PENDING_APPROVAL: "Chờ duyệt",
+  APPROVED: "Đã duyệt",
+  REJECTED: "Từ chối",
+};
+
+const formatDocumentDate = (value: string) => new Intl.DateTimeFormat("vi-VN", {
+  day: "2-digit", month: "2-digit", year: "numeric",
+}).format(new Date(value));
 
 interface DocNode {
   id: string;
@@ -35,15 +57,6 @@ interface ImportData {
 }
 
 // ─── DATA ────────────────────────────────────────────────────────────────────
-
-const MY_DOCUMENTS = [
-  { id: 1, name: "Nghị định 15/2021/NĐ-CP về quản lý dự án đầu tư xây dựng", date: "15/07/2025", month: "Tháng 7", year: 2025, type: "Nghị định" },
-  { id: 2, name: "Thông tư 08/2025/TT-BTC hướng dẫn quản lý ngân sách nhà nước", date: "22/07/2025", month: "Tháng 7", year: 2025, type: "Thông tư" },
-  { id: 3, name: "Quyết định 1234/QĐ-TTg phê duyệt Đề án chuyển đổi số quốc gia", date: "05/07/2025", month: "Tháng 7", year: 2025, type: "Quyết định" },
-  { id: 4, name: "Luật Đầu tư công số 39/2019/QH14 (hợp nhất)", date: "10/08/2025", month: "Tháng 8", year: 2025, type: "Luật" },
-  { id: 5, name: "Nghị quyết 58/NQ-CP về đẩy mạnh cải cách hành chính 2025–2030", date: "20/08/2025", month: "Tháng 8", year: 2025, type: "Nghị quyết" },
-  { id: 6, name: "Thông tư liên tịch 12/2024/TTLT-BTP-BNV về đăng ký hộ tịch", date: "28/08/2025", month: "Tháng 8", year: 2025, type: "Thông tư" },
-];
 
 const LEGAL_LIBRARY = [
   { id: 1, name: "Bộ luật Dân sự 2015", category: "Dân sự", status: "Còn hiệu lực", year: 2015, issuer: "Quốc hội", number: "91/2015/QH13" },
@@ -803,134 +816,64 @@ const NAV_ITEMS = [
 
 // ─── PROFILE MODAL ───────────────────────────────────────────────────────────
 
-function ProfileModal({ onClose }: { onClose: () => void }) {
+function ProfileModal({ currentUser, onClose, onPasswordChanged }: {
+  currentUser: UserPublic; onClose: () => void; onPasswordChanged: () => void;
+}) {
   const [tab, setTab] = useState<"info" | "password">("info");
-  const [phone, setPhone] = useState("0912 345 678");
-  const [chucVu, setChucVu] = useState("Chuyên viên pháp chế");
-  const [phongBan, setPhongBan] = useState("Phòng Pháp chế");
-  const [thon, setThon] = useState("");
-  const [xa, setXa] = useState("Xã Phú Xuân");
-  const [tinh, setTinh] = useState("Tỉnh Thái Bình");
-  const [saved, setSaved] = useState(false);
   const [curPwd, setCurPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
-  const [pwdSaved, setPwdSaved] = useState(false);
-
-  const handleSaveInfo = () => { setSaved(true); setTimeout(() => setSaved(false), 2000); };
-  const handleSavePwd = () => {
-    if (!curPwd || !newPwd || newPwd !== confirmPwd) return;
-    setPwdSaved(true);
-    setCurPwd(""); setNewPwd(""); setConfirmPwd("");
-    setTimeout(() => setPwdSaved(false), 2000);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full" style={{ maxWidth: 520 }}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#C41E3A] to-[#8a1224] flex items-center justify-center text-white font-bold">NV</div>
-            <div>
-              <h2 className="text-sm font-bold text-gray-900">Nguyễn Văn An</h2>
-              <p className="text-[10px] text-gray-400">an.nguyen@vads.gov.vn</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"><X className="w-4 h-4" /></button>
-        </div>
-
-        <div className="flex border-b border-gray-100 px-6">
-          {([["info", "Thông tin cá nhân", User], ["password", "Đổi mật khẩu", Lock]] as const).map(([key, label, Icon]) => (
-            <button key={key} onClick={() => setTab(key)}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-semibold border-b-2 transition-colors ${tab === key ? "border-[#C41E3A] text-[#C41E3A]" : "border-transparent text-gray-400 hover:text-gray-600"}`}>
-              <Icon className="w-3.5 h-3.5" />{label}
-            </button>
-          ))}
-        </div>
-
-        <div className="p-6">
-          {tab === "info" ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Họ và tên</label>
-                  <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-400 select-none">Nguyễn Văn An</div>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Email</label>
-                  <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-400 select-none">an.nguyen@vads.gov.vn</div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                {([["Số điện thoại", phone, setPhone, Phone], ["Chức vụ", chucVu, setChucVu, Briefcase]] as const).map(([label, val, setter, Icon]) => (
-                  <div key={label}>
-                    <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{label}</label>
-                    <div className="relative">
-                      <Icon className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-300" />
-                      <input value={val} onChange={e => setter(e.target.value)} className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#C41E3A]/20 focus:border-[#C41E3A] transition-colors" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Phòng ban</label>
-                <div className="relative">
-                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-300" />
-                  <input value={phongBan} onChange={e => setPhongBan(e.target.value)} className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#C41E3A]/20 focus:border-[#C41E3A] transition-colors" />
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {([["Thôn", thon, setThon, "VD: Thôn 1"], ["Xã", xa, setXa, ""], ["Tỉnh", tinh, setTinh, ""]] as const).map(([label, val, setter, ph]) => (
-                  <div key={label}>
-                    <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{label}</label>
-                    <div className="relative">
-                      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-300" />
-                      <input value={val} onChange={e => setter(e.target.value)} placeholder={ph} className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#C41E3A]/20 focus:border-[#C41E3A] transition-colors" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button onClick={handleSaveInfo}
-                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all ${saved ? "bg-emerald-500 text-white" : "bg-[#0F1623] hover:bg-[#1a2535] text-white"}`}>
-                {saved ? <><CheckCircle2 className="w-3.5 h-3.5" />Đã lưu</> : <><Save className="w-3.5 h-3.5" />Lưu thay đổi</>}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {[["Mật khẩu hiện tại", curPwd, setCurPwd], ["Mật khẩu mới", newPwd, setNewPwd], ["Xác nhận mật khẩu mới", confirmPwd, setConfirmPwd]].map(([label, val, setter]) => (
-                <div key={label as string}>
-                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{label as string}</label>
-                  <input type="password" value={val as string} onChange={e => (setter as (v: string) => void)(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#C41E3A]/20 focus:border-[#C41E3A] transition-colors" />
-                </div>
-              ))}
-              {newPwd && confirmPwd && newPwd !== confirmPwd && (
-                <p className="text-[11px] text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />Mật khẩu xác nhận không khớp</p>
-              )}
-              <button onClick={handleSavePwd} disabled={!curPwd || !newPwd || newPwd !== confirmPwd}
-                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all ${pwdSaved ? "bg-emerald-500 text-white" : "bg-[#0F1623] hover:bg-[#1a2535] text-white"} disabled:opacity-40 disabled:cursor-not-allowed`}>
-                {pwdSaved ? <><CheckCircle2 className="w-3.5 h-3.5" />Đã đổi mật khẩu</> : <><Lock className="w-3.5 h-3.5" />Đổi mật khẩu</>}
-              </button>
-            </div>
-          )}
-        </div>
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const avatar = currentUser.full_name.trim().split(/\s+/).map(part => part[0]).slice(-2).join("").toUpperCase();
+  async function handleSavePwd() {
+    setError("");
+    if (newPwd.length < 12) return setError("Mật khẩu mới phải có ít nhất 12 ký tự.");
+    if (newPwd !== confirmPwd) return setError("Mật khẩu xác nhận không khớp.");
+    setLoading(true);
+    try { await changePassword(curPwd, newPwd); onPasswordChanged(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Không thể đổi mật khẩu."); setLoading(false); }
+  }
+  const rows = [
+    ["Tên đăng nhập", currentUser.username], ["Họ và tên", currentUser.full_name],
+    ["Email", currentUser.email], ["Chức vụ", currentUser.position || "Chưa cập nhật"],
+    ["Phòng ban", currentUser.department || "Chưa cập nhật"],
+    ["Vai trò", currentUser.role === "ADMIN" ? "Quản trị" : "Người dùng"],
+  ];
+  return <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-lg">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-[#C41E3A] flex items-center justify-center text-white text-xs font-bold">{avatar}</div>
+          <div><h2 className="text-sm font-bold text-gray-900">{currentUser.full_name}</h2><p className="text-[10px] text-gray-400">{currentUser.email}</p></div></div>
+        <button onClick={onClose} className="p-2 text-gray-400 hover:bg-gray-100 rounded-xl"><X className="w-4 h-4" /></button>
       </div>
+      <div className="flex border-b border-gray-100 px-6">{([["info", "Thông tin cá nhân", User], ["password", "Đổi mật khẩu", Lock]] as const).map(([key, label, Icon]) =>
+        <button key={key} onClick={() => setTab(key)} className={`flex items-center gap-2 px-4 py-3 text-xs font-semibold border-b-2 ${tab === key ? "border-[#C41E3A] text-[#C41E3A]" : "border-transparent text-gray-400"}`}><Icon className="w-3.5 h-3.5" />{label}</button>)}</div>
+      <div className="p-6">{tab === "info" ? <div>
+        <div className="grid grid-cols-2 gap-4">{rows.map(([label, value]) => <div key={label}><p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">{label}</p><p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">{value}</p></div>)}</div>
+        <p className="mt-4 text-[11px] text-gray-400">Thông tin này được đọc trực tiếp từ tài khoản backend. API hiện chưa hỗ trợ tự chỉnh sửa hồ sơ.</p>
+      </div> : <div className="space-y-4">
+        {[["Mật khẩu hiện tại", curPwd, setCurPwd], ["Mật khẩu mới", newPwd, setNewPwd], ["Xác nhận mật khẩu mới", confirmPwd, setConfirmPwd]].map(([label, value, setter]) => <label key={label as string} className="block"><span className="block text-[11px] font-semibold text-gray-500 uppercase mb-1.5">{label as string}</span><input type="password" value={value as string} onChange={event => (setter as (value: string) => void)(event.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs outline-none focus:border-[#C41E3A]" /></label>)}
+        {error && <p className="text-[11px] text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
+        <button onClick={() => void handleSavePwd()} disabled={loading || !curPwd || !newPwd || !confirmPwd} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold bg-[#0F1623] text-white disabled:opacity-40">{loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Đổi mật khẩu</button>
+      </div>}</div>
     </div>
-  );
+  </div>;
 }
 
 // ─── IMPORT MODAL ─────────────────────────────────────────────────────────────
 
-function ImportModal({ onClose, onSubmit }: {
+function ImportModal({ onClose, onSubmit, currentUser }: {
   onClose: () => void;
   onSubmit: (data: ImportData) => void;
+  currentUser: UserPublic;
 }) {
-  const [ten, setTen] = useState("Nguyễn Văn An");
-  const [chucVu, setChucVu] = useState("Chuyên viên pháp chế");
-  const [phongBan, setPhongBan] = useState("Phòng Pháp chế");
+  const [ten, setTen] = useState(currentUser.full_name);
+  const [chucVu, setChucVu] = useState(currentUser.position ?? "");
+  const [phongBan, setPhongBan] = useState(currentUser.department ?? "");
   const [thon, setThon] = useState("");
-  const [xa, setXa] = useState("Xã Phú Xuân");
-  const [tinh, setTinh] = useState("Tỉnh Thái Bình");
+  const [xa, setXa] = useState("");
+  const [tinh, setTinh] = useState("");
   const [baoCaoFile, setBaoCaoFile] = useState<string | null>(null);
   const [vanBanFile, setVanBanFile] = useState<string | null>(null);
   const baoCaoRef = useRef<HTMLInputElement>(null);
@@ -1041,13 +984,15 @@ function ImportModal({ onClose, onSubmit }: {
   );
 }
 
-function Sidebar({ active, onNavigate, collapsed, onToggle, onProfile, onImport }: {
+function Sidebar({ active, onNavigate, collapsed, onToggle, onProfile, onImport, currentUser, onLogout }: {
   active: string;
   onNavigate: (s: Screen) => void;
   collapsed: boolean;
   onToggle: () => void;
   onProfile: () => void;
   onImport: () => void;
+  currentUser?: UserPublic;
+  onLogout?: () => void | Promise<void>;
 }) {
   const [hoverOpen, setHoverOpen] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -1062,6 +1007,9 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onProfile, onImport 
 
   // Single sidebar — expands either permanently (!collapsed) or temporarily (hoverOpen)
   const isExpanded = !collapsed || hoverOpen;
+  const displayName = currentUser?.full_name ?? "Người dùng VADS";
+  const displayPosition = currentUser?.position ?? currentUser?.department ?? "Tài khoản hệ thống";
+  const avatar = displayName.trim().split(/\s+/).map((part) => part[0]).slice(-2).join("").toUpperCase();
 
   return (
     <aside
@@ -1136,19 +1084,19 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onProfile, onImport 
         {isExpanded ? (
           <div className="flex items-center gap-3">
             <button onClick={onProfile} title="Thông tin cá nhân"
-              className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C41E3A] to-[#8a1224] flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 hover:opacity-80 transition-opacity">NV</button>
+              className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C41E3A] to-[#8a1224] flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 hover:opacity-80 transition-opacity">{avatar}</button>
             <button onClick={onProfile} className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
-              <div className="text-white text-xs font-semibold truncate whitespace-nowrap">Nguyễn Văn An</div>
-              <div className="text-white/35 text-[10px] truncate whitespace-nowrap">Chuyên viên pháp chế</div>
+              <div className="text-white text-xs font-semibold truncate whitespace-nowrap">{displayName}</div>
+              <div className="text-white/35 text-[10px] truncate whitespace-nowrap">{displayPosition}</div>
             </button>
-            <button className="text-white/30 hover:text-white/70 transition-colors p-1 rounded flex-shrink-0">
+            <button onClick={() => void onLogout?.()} title="Đăng xuất" className="text-white/30 hover:text-white/70 transition-colors p-1 rounded flex-shrink-0">
               <LogOut className="w-3.5 h-3.5" />
             </button>
           </div>
         ) : (
           <div className="flex justify-center">
             <button onClick={onProfile} title="Thông tin cá nhân"
-              className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C41E3A] to-[#8a1224] flex items-center justify-center text-white text-[10px] font-bold hover:opacity-80 transition-opacity">NV</button>
+              className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C41E3A] to-[#8a1224] flex items-center justify-center text-white text-[10px] font-bold hover:opacity-80 transition-opacity">{avatar}</button>
           </div>
         )}
       </div>
@@ -1158,14 +1106,17 @@ function Sidebar({ active, onNavigate, collapsed, onToggle, onProfile, onImport 
 
 // ─── HEADER ──────────────────────────────────────────────────────────────────
 
-function Header({ title, sidebarW }: { title: string; sidebarW: number }) {
+function Header({ title, sidebarW, documents, onNavigate }: {
+  title: string; sidebarW: number; documents: DocumentPublic[];
+  onNavigate: (screen: Screen) => void;
+}) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [showNotif, setShowNotif] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
   const allDocs = [
-    ...MY_DOCUMENTS.map(d => ({ ...d, source: "mine" as const })),
+    ...documents.map(d => ({ id: d.id, name: d.title, type: STATUS_LABELS[d.status], date: formatDocumentDate(d.created_at), source: "mine" as const })),
     ...LEGAL_LIBRARY.map(d => ({ id: d.id, name: d.name, type: d.category, date: String(d.year), month: "", year: d.year, source: "library" as const })),
   ];
   const results = searchQuery.length > 1
@@ -1191,7 +1142,7 @@ function Header({ title, sidebarW }: { title: string; sidebarW: number }) {
         {showSearch && results.length > 0 && (
           <div className="absolute top-full left-0 mt-1.5 bg-white border border-gray-200 rounded-xl shadow-xl z-30 w-72 overflow-hidden py-1">
             {results.map((d, i) => (
-              <button key={i} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left transition-colors">
+              <button key={i} onClick={() => { if (d.source === "mine") onNavigate("documents"); setShowSearch(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 text-left transition-colors">
                 <FileText className="w-4 h-4 text-gray-300 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold text-gray-800 truncate">{d.name}</p>
@@ -1212,23 +1163,24 @@ function Header({ title, sidebarW }: { title: string; sidebarW: number }) {
       <div className="relative">
         <button onClick={() => setShowNotif(v => !v)} className="relative p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
           <Bell className="w-4 h-4" />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#C41E3A] rounded-full" />
+          {documents.length > 0 && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#C41E3A] rounded-full" />}
         </button>
         {showNotif && (
           <div className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-2xl shadow-xl z-30 w-80 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wide">Thông báo</h3>
-              <span className="text-[10px] text-[#C41E3A] font-semibold">3 mới</span>
+              <span className="text-[10px] text-[#C41E3A] font-semibold">{documents.length} tài liệu</span>
             </div>
             <div className="max-h-72 overflow-y-auto">
-              {MY_DOCUMENTS.slice(0, 3).map((doc, i) => (
-                <div key={i} className="flex items-start gap-3 px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer">
+              {documents.length === 0 && <p className="px-4 py-8 text-center text-xs text-gray-400">Chưa có tài liệu mới.</p>}
+              {documents.slice(0, 3).map((doc) => (
+                <div key={doc.id} onClick={() => { onNavigate("documents"); setShowNotif(false); }} className="flex items-start gap-3 px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer">
                   <div className="w-8 h-8 bg-[#C41E3A]/10 rounded-lg flex items-center justify-center flex-shrink-0">
                     <FileText className="w-3.5 h-3.5 text-[#C41E3A]" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-gray-800 line-clamp-2">{doc.name}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">Đã thêm · {doc.date}</p>
+                    <p className="text-xs font-semibold text-gray-800 line-clamp-2">{doc.title}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{STATUS_LABELS[doc.status]} · {formatDocumentDate(doc.created_at)}</p>
                   </div>
                   <div className="w-1.5 h-1.5 bg-[#C41E3A] rounded-full flex-shrink-0 mt-1.5" />
                 </div>
@@ -1245,7 +1197,7 @@ function Header({ title, sidebarW }: { title: string; sidebarW: number }) {
   );
 }
 
-function MainLayout({ children, active, title, onNavigate, collapsed, onToggle, onProfile, onImport }: {
+function MainLayout({ children, active, title, onNavigate, collapsed, onToggle, onProfile, onImport, currentUser, documents, onLogout }: {
   children: React.ReactNode;
   active: string;
   title: string;
@@ -1254,12 +1206,15 @@ function MainLayout({ children, active, title, onNavigate, collapsed, onToggle, 
   onToggle: () => void;
   onProfile: () => void;
   onImport: () => void;
+  currentUser: UserPublic;
+  documents: DocumentPublic[];
+  onLogout: () => void | Promise<void>;
 }) {
   const W = collapsed ? 64 : 232;
   return (
     <div className="min-h-screen bg-[#F4F5F7]">
-      <Sidebar active={active} onNavigate={onNavigate} collapsed={collapsed} onToggle={onToggle} onProfile={onProfile} onImport={onImport} />
-      <Header title={title} sidebarW={W} />
+      <Sidebar active={active} onNavigate={onNavigate} collapsed={collapsed} onToggle={onToggle} onProfile={onProfile} onImport={onImport} currentUser={currentUser} onLogout={onLogout} />
+      <Header title={title} sidebarW={W} documents={documents} onNavigate={onNavigate} />
       <main className="pt-14 min-h-screen transition-all duration-300" style={{ marginLeft: W }}>
         <div className="p-6">{children}</div>
       </main>
@@ -1325,18 +1280,22 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 
-function DashboardScreen({ onNavigate }: { onNavigate: (s: Screen) => void }) {
+function DashboardScreen({ onNavigate, documents, documentsLoading, documentsError }: {
+  onNavigate: (s: Screen) => void; documents: DocumentPublic[];
+  documentsLoading: boolean; documentsError: string;
+}) {
   const [baoCaoFile, setBaoCaoFile] = useState<string | null>(null);
   const [vanBanFile, setVanBanFile] = useState<string | null>(null);
   const baoCaoRef = useRef<HTMLInputElement>(null);
   const vanBanRef = useRef<HTMLInputElement>(null);
   const CARDS = [
-    { id: "documents", title: "Tài liệu của tôi", desc: "Quản lý và tra cứu toàn bộ tài liệu đã phân tích trong hệ thống.", icon: FileText, count: "24 tài liệu" },
-    { id: "library", title: "Thư viện pháp luật", desc: "Tra cứu toàn bộ văn bản pháp luật hiện hành và đã hết hiệu lực.", icon: Scale, count: "1.240 văn bản" },
-    { id: "notebook", title: "Sổ tay kiến thức", desc: "Lưu trữ thuật ngữ và định nghĩa pháp lý được trích xuất tự động.", icon: BookMarked, count: "87 mục từ" },
+    { id: "documents", title: "Tài liệu của tôi", desc: "Quản lý và tra cứu toàn bộ tài liệu đã phân tích trong hệ thống.", icon: FileText, count: documentsLoading ? "Đang tải..." : `${documents.length} tài liệu` },
+    { id: "library", title: "Thư viện pháp luật", desc: "Giao diện minh họa; backend hiện chưa cung cấp API thư viện.", icon: Scale, count: "Chưa có API" },
+    { id: "notebook", title: "Sổ tay kiến thức", desc: "Giao diện minh họa; backend hiện chưa cung cấp API sổ tay.", icon: BookMarked, count: "Chưa có API" },
   ];
   return (
     <div className="space-y-5">
+      {documentsError && <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700"><AlertCircle className="h-4 w-4" />{documentsError}</div>}
       <div className="relative rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-gray-50">
@@ -1447,54 +1406,67 @@ function DashboardScreen({ onNavigate }: { onNavigate: (s: Screen) => void }) {
 
 // ─── MY DOCUMENTS ─────────────────────────────────────────────────────────────
 
-function MyDocumentsScreen({ onNavigate }: { onNavigate: (s: Screen) => void }) {
-  const [year, setYear] = useState("2025");
+function MyDocumentsScreen({ documents, loading, error, onRefresh }: {
+  documents: DocumentPublic[]; loading: boolean; error: string; onRefresh: () => void;
+}) {
+  const years = useMemo(() => Array.from(new Set(documents.map((document) =>
+    new Date(document.created_at).getFullYear().toString()))).sort((a, b) => b.localeCompare(a)), [documents]);
+  const [year, setYear] = useState("");
   const [open, setOpen] = useState(false);
-  const grouped = ["Tháng 7", "Tháng 8"].map(m => ({ month: m, docs: MY_DOCUMENTS.filter(d => d.month === m && d.year.toString() === year) }));
+  useEffect(() => {
+    if (years.length > 0 && (!year || !years.includes(year))) setYear(years[0]);
+  }, [year, years]);
+  const visibleDocuments = documents.filter((document) =>
+    !year || new Date(document.created_at).getFullYear().toString() === year);
+  const grouped = Array.from(visibleDocuments.reduce((groups, document) => {
+    const monthNumber = new Date(document.created_at).getMonth() + 1;
+    const current = groups.get(monthNumber) ?? [];
+    current.push(document); groups.set(monthNumber, current); return groups;
+  }, new Map<number, DocumentPublic[]>())).sort(([a], [b]) => b - a);
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Tài liệu của tôi</h2>
-          <p className="text-sm text-gray-500 mt-0.5">{MY_DOCUMENTS.filter(d => d.year.toString() === year).length} tài liệu trong năm {year}</p>
+          <p className="text-sm text-gray-500 mt-0.5">{visibleDocuments.length} tài liệu{year ? ` trong năm ${year}` : " từ backend"}</p>
         </div>
-        <div className="relative">
+        <div className="flex items-center gap-2"><button onClick={onRefresh} disabled={loading} className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-semibold text-gray-600 disabled:opacity-50"><RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />Làm mới</button><div className="relative">
           <button onClick={() => setOpen(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 hover:border-gray-300 shadow-sm">
-            <Calendar className="w-4 h-4 text-gray-400" />Năm {year}<ChevronDown className="w-4 h-4 text-gray-400" />
+            <Calendar className="w-4 h-4 text-gray-400" />{year ? `Năm ${year}` : "Chưa có năm"}<ChevronDown className="w-4 h-4 text-gray-400" />
           </button>
-          {open && (
+          {open && years.length > 0 && (
             <div className="absolute right-0 mt-1.5 bg-white border border-gray-200 rounded-xl shadow-xl z-10 overflow-hidden py-1">
-              {["2023", "2024", "2025"].map(y => (
+              {years.map(y => (
                 <button key={y} onClick={() => { setYear(y); setOpen(false); }}
                   className={`block w-full text-left px-4 py-2 text-sm hover:bg-gray-50 ${year === y ? "text-[#C41E3A] font-bold" : "text-gray-700"}`}>{y}</button>
               ))}
             </div>
           )}
-        </div>
+        </div></div>
       </div>
+      {error && <div className="mb-5 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700"><AlertCircle className="w-4 h-4" />{error}</div>}
+      {loading && documents.length === 0 && <div className="flex items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-white py-20 text-sm text-gray-400"><Loader2 className="w-5 h-5 animate-spin" />Đang tải tài liệu...</div>}
+      {!loading && !error && documents.length === 0 && <div className="rounded-2xl border border-dashed border-gray-300 bg-white py-20 text-center"><FileText className="mx-auto mb-3 h-9 w-9 text-gray-300" /><p className="text-sm font-semibold text-gray-600">Chưa có tài liệu</p><p className="mt-1 text-xs text-gray-400">Backend chưa có tài liệu nào thuộc phạm vi tài khoản này.</p></div>}
       <div className="space-y-8">
-        {grouped.map(({ month, docs }) => docs.length > 0 && (
+        {grouped.map(([month, docs]) => (
           <div key={month}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-2 h-2 rounded-full bg-[#C41E3A] flex-shrink-0" />
-              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">{month}</h3>
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Tháng {month}</h3>
               <div className="flex-1 h-px bg-gray-200" />
               <span className="text-[10px] text-gray-400 font-semibold">{docs.length} tài liệu</span>
             </div>
             <div className="grid grid-cols-3 gap-3 ml-5">
               {docs.map(doc => (
-                <div key={doc.id} onClick={() => onNavigate("processing")}
-                  className="bg-white border border-black/[0.05] rounded-xl p-4 hover:shadow-md hover:border-[#C41E3A]/20 cursor-pointer transition-all group">
+                <div key={doc.id} className="bg-white border border-black/[0.05] rounded-xl p-4 hover:shadow-md hover:border-[#C41E3A]/20 transition-all group">
                   <div className="flex items-start gap-3">
                     <div className="w-9 h-9 bg-gray-50 group-hover:bg-[#C41E3A]/8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors">
                       <FileText className="w-4 h-4 text-gray-300 group-hover:text-[#C41E3A] transition-colors" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-800 line-clamp-2 mb-2.5 leading-relaxed">{doc.name}</p>
-                      <div className="flex items-center justify-between gap-2">
-                        <DocTypeBadge type={doc.type} />
-                        <span className="text-[9px] text-gray-400 font-mono">{doc.date}</span>
-                      </div>
+                      <p className="text-xs font-semibold text-gray-800 line-clamp-2 mb-2.5 leading-relaxed">{doc.title}</p>
+                      <div className="flex flex-wrap items-center gap-1.5"><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${doc.status === "COMPLETED" ? "bg-emerald-50 text-emerald-700" : doc.status === "FAILED" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>{STATUS_LABELS[doc.status]}</span><span className="rounded-full bg-gray-100 px-2 py-1 text-[9px] font-semibold text-gray-500">{APPROVAL_LABELS[doc.approval_status]}</span></div>
+                      <span className="mt-2 block text-[9px] text-gray-400 font-mono">{formatDocumentDate(doc.created_at)}</span>
                     </div>
                   </div>
                 </div>
@@ -1825,7 +1797,11 @@ function TreeDiagram({ onSelect, selectedId }: {
 
 // ─── WHITEBOARD SCREEN ────────────────────────────────────────────────────────
 
-function WhiteboardScreen({ onNavigate, importData, onProfile, onImport }: { onNavigate: (s: Screen) => void; importData: ImportData | null; onProfile: () => void; onImport: () => void }) {
+function WhiteboardScreen({ onNavigate, importData, onProfile, onImport, currentUser, onLogout }: {
+  onNavigate: (s: Screen) => void; importData: ImportData | null;
+  onProfile: () => void; onImport: () => void; currentUser: UserPublic;
+  onLogout: () => void | Promise<void>;
+}) {
   const [zoom, setZoom] = useState(0.9);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -1952,7 +1928,7 @@ function WhiteboardScreen({ onNavigate, importData, onProfile, onImport }: { onN
     }
   };
 
-  const user = importData ?? { ten: "Nguyễn Văn An", chucVu: "Chuyên viên pháp chế", phongBan: "Phòng Pháp chế", thon: "", xa: "Xã Phú Xuân", tinh: "Tỉnh Thái Bình", baoCaoFile: null, vanBanFile: null };
+  const user = importData ?? { ten: currentUser.full_name, chucVu: currentUser.position ?? "Chưa cập nhật", phongBan: currentUser.department ?? "Chưa cập nhật", thon: "", xa: "", tinh: "", baoCaoFile: null, vanBanFile: null };
 
   const ANALYSIS_SECTIONS = [
     {
@@ -1990,7 +1966,7 @@ function WhiteboardScreen({ onNavigate, importData, onProfile, onImport }: { onN
   return (
     <div className="fixed inset-0 overflow-hidden" style={{ background: "#F0F1F3" }}>
       {/* ── Sidebar (collapsed, same as main app) ── */}
-      <Sidebar active="tree" onNavigate={onNavigate} collapsed={true} onToggle={() => {}} onProfile={onProfile} onImport={onImport} />
+      <Sidebar active="tree" onNavigate={onNavigate} collapsed={true} onToggle={() => {}} onProfile={onProfile} onImport={onImport} currentUser={currentUser} onLogout={onLogout} />
 
       {/* ── Top bar ── */}
       <div className="fixed top-0 right-0 h-14 bg-white border-b border-black/[0.06] flex items-center pr-5 z-20 shadow-sm" style={{ left: SIDEBAR_W }}>
@@ -2333,21 +2309,39 @@ const TITLES: Record<Screen, string> = {
   library: "Thư viện pháp luật", notebook: "Sổ tay kiến thức", processing: "Đang xử lý...", tree: "Phân tích tài liệu",
 };
 
-export default function UserPortal({ currentUser, onLogout }: { currentUser: { full_name: string }; onLogout: () => void }) {
+export default function UserPortal({ currentUser, onLogout }: {
+  currentUser: UserPublic; onLogout: () => void | Promise<void>;
+}) {
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [collapsed, setCollapsed] = useState(true);
   const [showProfile, setShowProfile] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importData, setImportData] = useState<ImportData | null>(null);
+  const [documents, setDocuments] = useState<DocumentPublic[]>([]);
+  const [documentsLoading, setDocumentsLoading] = useState(true);
+  const [documentsError, setDocumentsError] = useState("");
+
+  async function refreshDocuments() {
+    setDocumentsLoading(true); setDocumentsError("");
+    try { setDocuments(await listDocuments()); }
+    catch (reason) { setDocumentsError(reason instanceof Error ? reason.message : "Không thể tải tài liệu."); }
+    finally { setDocumentsLoading(false); }
+  }
+  useEffect(() => { void refreshDocuments(); }, []);
 
   const navigate = (s: Screen) => setScreen(s);
   const handleImportSubmit = (data: ImportData) => { setImportData(data); setScreen("processing"); };
 
-  if (screen === "tree") return <WhiteboardScreen onNavigate={navigate} importData={importData} onProfile={() => setShowProfile(true)} onImport={() => setShowImport(true)} />;
+  if (screen === "tree") return <>
+    <WhiteboardScreen onNavigate={navigate} importData={importData} onProfile={() => setShowProfile(true)}
+      onImport={() => setShowImport(true)} currentUser={currentUser} onLogout={onLogout} />
+    {showProfile && <ProfileModal currentUser={currentUser} onClose={() => setShowProfile(false)} onPasswordChanged={() => void onLogout()} />}
+    {showImport && <ImportModal onClose={() => setShowImport(false)} onSubmit={handleImportSubmit} currentUser={currentUser} />}
+  </>;
 
   if (screen === "processing") return (
     <>
-      <MainLayout active="dashboard" title="Đang xử lý tài liệu" onNavigate={navigate} collapsed={collapsed} onToggle={() => setCollapsed(v => !v)} onProfile={() => setShowProfile(true)} onImport={() => setShowImport(true)}>
+      <MainLayout active="dashboard" title="Đang xử lý tài liệu" onNavigate={navigate} collapsed={collapsed} onToggle={() => setCollapsed(v => !v)} onProfile={() => setShowProfile(true)} onImport={() => setShowImport(true)} currentUser={currentUser} documents={documents} onLogout={onLogout}>
         <div className="h-96 flex items-center justify-center"><p className="text-gray-400 text-sm">Đang phân tích...</p></div>
       </MainLayout>
       <ProcessingScreen onComplete={() => setScreen("tree")} />
@@ -2356,15 +2350,14 @@ export default function UserPortal({ currentUser, onLogout }: { currentUser: { f
 
   return (
     <>
-      <button onClick={onLogout} title={`Đăng xuất ${currentUser.full_name}`} className="fixed right-5 bottom-5 z-50 bg-[#0F1623] text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-xl hover:bg-black">Đăng xuất</button>
-      <MainLayout active={screen} title={TITLES[screen]} onNavigate={navigate} collapsed={collapsed} onToggle={() => setCollapsed(v => !v)} onProfile={() => setShowProfile(true)} onImport={() => setShowImport(true)}>
-        {screen === "dashboard" && <DashboardScreen onNavigate={navigate} />}
-        {screen === "documents" && <MyDocumentsScreen onNavigate={navigate} />}
+      <MainLayout active={screen} title={TITLES[screen]} onNavigate={navigate} collapsed={collapsed} onToggle={() => setCollapsed(v => !v)} onProfile={() => setShowProfile(true)} onImport={() => setShowImport(true)} currentUser={currentUser} documents={documents} onLogout={onLogout}>
+        {screen === "dashboard" && <DashboardScreen onNavigate={navigate} documents={documents} documentsLoading={documentsLoading} documentsError={documentsError} />}
+        {screen === "documents" && <MyDocumentsScreen documents={documents} loading={documentsLoading} error={documentsError} onRefresh={() => void refreshDocuments()} />}
         {screen === "library" && <LegalLibraryScreen onNavigate={navigate} />}
         {screen === "notebook" && <KnowledgeNotebookScreen />}
       </MainLayout>
-      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
-      {showImport && <ImportModal onClose={() => setShowImport(false)} onSubmit={handleImportSubmit} />}
+      {showProfile && <ProfileModal currentUser={currentUser} onClose={() => setShowProfile(false)} onPasswordChanged={() => void onLogout()} />}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onSubmit={handleImportSubmit} currentUser={currentUser} />}
     </>
   );
 }

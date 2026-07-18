@@ -22,6 +22,22 @@ export interface UserPublic {
   must_change_password: boolean;
 }
 
+export interface StaffDirectoryEntry {
+  full_name: string;
+  position: string | null;
+  department: string | null;
+  commune_name: string;
+}
+
+export interface AdminUserCreateInput {
+  username: string;
+  email: string;
+  full_name: string;
+  position?: string | null;
+  department?: string | null;
+  temporary_password: string;
+}
+
 export type ProcessingStatus =
   | "UPLOADED"
   | "QUEUED"
@@ -207,6 +223,41 @@ export async function listDocuments(): Promise<DocumentPublic[]> {
     if (page.length < pageSize) return documents;
     offset += pageSize;
   }
+}
+
+async function listAll<T>(path: string): Promise<T[]> {
+  const values: T[] = [];
+  const pageSize = 100;
+  let offset = 0;
+
+  while (true) {
+    const separator = path.includes("?") ? "&" : "?";
+    const page = await request<T[]>(`${path}${separator}offset=${offset}&limit=${pageSize}`);
+    values.push(...page);
+    if (page.length < pageSize) return values;
+    offset += pageSize;
+  }
+}
+
+export function listAdminUsers(): Promise<UserPublic[]> {
+  return listAll<UserPublic>("/admin/users");
+}
+
+export function listStaffDirectory(): Promise<StaffDirectoryEntry[]> {
+  return listAll<StaffDirectoryEntry>("/staff-directory");
+}
+
+export function createAdminUser(input: AdminUserCreateInput): Promise<UserPublic> {
+  return request<UserPublic>("/admin/users", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function setAdminUserActive(userId: string, active: boolean): Promise<UserPublic> {
+  return request<UserPublic>(`/admin/users/${encodeURIComponent(userId)}/${active ? "unlock" : "lock"}`, {
+    method: "PATCH",
+  });
 }
 
 export async function changePassword(
