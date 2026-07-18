@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.router import router as secure_v1_router
 from app.config.settings import Settings, get_settings
 from app.controller.common import router as common_router
 from app.documents.router import router as documents_router
@@ -30,7 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=app_settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
         expose_headers=["X-Request-ID"],
     )
@@ -38,9 +39,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_exception_handlers(application)
 
     application.include_router(common_router)
-    application.include_router(workspaces_router, prefix=app_settings.api_prefix)
-    application.include_router(documents_router, prefix=app_settings.api_prefix)
-    application.include_router(ai_orchestration_router, prefix=app_settings.api_prefix)
+    application.include_router(secure_v1_router, prefix=app_settings.api_prefix)
+    if app_settings.legacy_api_enabled:
+        application.include_router(workspaces_router, prefix=app_settings.api_prefix)
+        application.include_router(documents_router, prefix=app_settings.api_prefix)
+        application.include_router(ai_orchestration_router, prefix=app_settings.api_prefix)
     return application
 
 

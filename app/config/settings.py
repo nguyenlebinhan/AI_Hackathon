@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AliasChoices, Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,7 +27,27 @@ class Settings(BaseSettings):
     api_prefix: str
 
     database_url: str
+    database_async_url: str | None = None
     database_echo: bool
+
+    # Local defaults keep the existing development setup bootable. Staging and
+    # production refuse to start until both independent secrets are replaced.
+    jwt_secret_key: SecretStr = SecretStr(
+        "local-only-jwt-secret-change-before-deployment-32-bytes"
+    )
+    jwt_algorithm: Literal["HS256"] = "HS256"
+    jwt_issuer: str = "vads-api"
+    jwt_audience: str = "vads-client"
+    jwt_key_id: str = "vads-hs256-v1"
+    access_token_ttl_minutes: int = Field(default=10, ge=1, le=30)
+    refresh_token_ttl_days: int = Field(default=30, ge=1, le=90)
+    refresh_token_pepper: SecretStr = SecretStr(
+        "local-only-refresh-pepper-change-before-deployment-32-bytes"
+    )
+    login_max_failed_attempts: int = Field(default=5, ge=3, le=20)
+    login_lock_minutes: int = Field(default=15, ge=1, le=1440)
+    user_document_upload_enabled: bool = False
+    legacy_api_enabled: bool = False
 
     redis_url: str
     celery_broker_url: str
@@ -82,6 +102,47 @@ class Settings(BaseSettings):
     @property
     def upload_spool_memory_bytes(self) -> int:
         return self.upload_spool_memory_mb * 1024 * 1024
+
+    @property
+    def resolved_async_database_url(self) -> str:
+        if self.database_async_url:
+            return self.database_async_url
+        if self.database_url.startswith("postgresql+psycopg://"):
+            return self.database_url.replace(
+                "postgresql+psycopg://", "postgresql+asyncpg://", 1
+            )
+        if self.database_url.startswith("sqlite+aiosqlite://"):
+            return self.database_url
+        if self.database_url.startswith("sqlite://"):
+            return self.database_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+        raise ValueError("VADS_DATABASE_ASYNC_URL must use an async SQLAlchemy driver")
+
+    @model_validator(mode="after")
+    def reject_local_security_secrets_in_deployed_environments(self) -> "Settings":
+        if self.environment in {"staging", "production"}:
+            weak_values = {
+                "local-only-jwt-secret-change-before-deployment-32-bytes",
+                "local-only-refresh-pepper-change-before-deployment-32-bytes",
+            }
+            configured = {
+                self.jwt_secret_key.get_secret_value(),
+                self.refresh_token_pepper.get_secret_value(),
+            }
+            if configured & weak_values or any(
+                marker in value.casefold()
+                for value in configured
+                for marker in ("replace-with", "change-me", "changeme")
+            ):
+                raise ValueError("JWT and refresh-token secrets must be replaced before deployment")
+            if any(len(value.encode("utf-8")) < 32 for value in configured):
+                raise ValueError("Security secrets must contain at least 32 bytes")
+            if self.legacy_api_enabled:
+                raise ValueError("Legacy API cannot be enabled in staging or production")
+            if self.debug:
+                raise ValueError("Debug mode cannot be enabled in staging or production")
+            if "*" in self.cors_origins:
+                raise ValueError("Wildcard CORS is forbidden in staging or production")
+        return self
 
 
 @lru_cache

@@ -15,6 +15,7 @@ class DocumentRepository(Repository[Document]):
         statement = select(Document).where(
             Document.id == document_id,
             Document.deleted_at.is_(None),
+            Document.is_deleted.is_(False),
         )
         if for_update:
             statement = statement.with_for_update()
@@ -27,6 +28,7 @@ class DocumentRepository(Repository[Document]):
                 Document.workspace_id == workspace_id,
                 Document.checksum == checksum,
                 Document.deleted_at.is_(None),
+                Document.is_deleted.is_(False),
             )
             .order_by(Document.created_at.desc())
             .limit(1)

@@ -81,6 +81,7 @@ def test_settings(tmp_path: Any) -> Settings:
         max_upload_size_mb=1,
         upload_spool_memory_mb=1,
         delete_object_on_soft_delete=True,
+        legacy_api_enabled=True,
         cors_origins=["http://localhost:3000"],
     )
 
