@@ -10,6 +10,7 @@ import {
   reprocessDocument, uploadDocument, type DocumentPublic, type RagQueryResult,
   type UserPublic,
 } from '../api';
+import { passwordStrengthError } from '../password';
 
 type Screen = 'dashboard' | 'documents' | 'assistant';
 type NoticeKind = 'error' | 'success' | 'info';
@@ -136,8 +137,9 @@ function ChangePasswordForm({ onChanged }: { onChanged: () => void }) {
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError('');
-    if (newPassword.length < 12) {
-      setError('Mật khẩu mới phải có ít nhất 12 ký tự.');
+    const passwordError = passwordStrengthError(newPassword);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
     if (newPassword !== confirmation) {

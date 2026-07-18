@@ -8,6 +8,7 @@ import {
   setAdminUserActive, type AdminUserCreateInput, type StaffDirectoryEntry,
   type UserPublic,
 } from "../api";
+import { passwordStrengthError } from "../password";
 
 type Screen = "users" | "create" | "directory";
 
@@ -67,8 +68,8 @@ function CreateUserScreen({ onCreated }: { onCreated: (user: UserPublic) => void
       return setError("Tên đăng nhập cần 3–64 ký tự và chỉ gồm chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.");
     if (!form.fullName.trim() || !/^\S+@\S+\.\S+$/.test(form.email))
       return setError("Vui lòng nhập đầy đủ họ tên và email hợp lệ.");
-    if (form.password.length < 12)
-      return setError("Mật khẩu tạm thời phải có ít nhất 12 ký tự.");
+    const passwordError = passwordStrengthError(form.password);
+    if (passwordError) return setError(passwordError);
     if (form.password !== form.confirmPassword)
       return setError("Mật khẩu xác nhận không khớp.");
     const payload: AdminUserCreateInput = {
@@ -105,7 +106,7 @@ function CreateUserScreen({ onCreated }: { onCreated: (user: UserPublic) => void
             {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
         <Field label="Xác nhận mật khẩu" value={form.confirmPassword} onChange={set("confirmPassword")}
           type={showPassword ? "text" : "password"} autoComplete="new-password" />
-        <p className="text-xs text-gray-400 md:col-span-2">Người dùng sẽ được yêu cầu đổi mật khẩu tạm thời sau khi đăng nhập.</p>
+        <p className="text-xs text-gray-400 md:col-span-2">Mật khẩu cần ít nhất 12 ký tự và dùng ít nhất 3 nhóm: chữ thường, chữ hoa, số, ký tự đặc biệt. Người dùng sẽ được yêu cầu đổi mật khẩu sau khi đăng nhập.</p>
         {error && <div className="md:col-span-2"><Notice kind="error">{error}</Notice></div>}
       </div>
       <div className="flex justify-end border-t border-gray-100 bg-gray-50 px-6 py-4">
@@ -257,7 +258,8 @@ function ChangePasswordModal({ onClose, onChanged }: { onClose: () => void; onCh
   const [error, setError] = useState("");
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setError("");
-    if (newPassword.length < 12) return setError("Mật khẩu mới phải có ít nhất 12 ký tự.");
+    const passwordError = passwordStrengthError(newPassword);
+    if (passwordError) return setError(passwordError);
     if (newPassword !== confirmPassword) return setError("Mật khẩu xác nhận không khớp.");
     setSubmitting(true);
     try { await changePassword(currentPassword, newPassword); onChanged(); }

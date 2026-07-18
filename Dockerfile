@@ -53,9 +53,6 @@ RUN if [ "$INSTALL_OCR" = "true" ]; then \
 
 USER vads
 
-# Railway injects $PORT dynamically; default to 8000 for other platforms
-ENV PORT=8000
+EXPOSE 8000
 
-EXPOSE ${PORT}
-
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

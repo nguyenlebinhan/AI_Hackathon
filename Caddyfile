@@ -1,0 +1,10 @@
+{$VADS_SITE_ADDRESS} {
+	encode zstd gzip
+
+	@backend path /api /api/* /health /health/*
+	reverse_proxy @backend api:8000
+
+	root * /srv
+	try_files {path} /index.html
+	file_server
+}

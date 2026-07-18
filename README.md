@@ -283,6 +283,9 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Deploy toàn bộ frontend và backend lên một Azure Ubuntu VM bằng Docker Compose và Caddy theo
+[hướng dẫn Azure VM](docs/deploy-azure-vm.md).
+
 Trên PowerShell, thay lệnh copy bằng:
 
 ```powershell
@@ -298,6 +301,20 @@ Sau khi khởi động:
 | OpenAPI JSON | `http://localhost:8000/api/openapi.json` |
 | Health check | `http://localhost:8000/health/live` |
 | MinIO Console | `http://localhost:9001` |
+
+Tạo lại hai tài khoản demo local (idempotent, không chạy ở staging/production):
+
+```bash
+python -m app.seed_demo_accounts
+```
+
+| Vai trò | Tài khoản | Mật khẩu |
+|---|---|---|
+| ADMIN | `admin.demo` | `VadsAdmin@2026` |
+| USER | `user.demo` | `VadsUser@2026!` |
+
+Có thể đổi thông tin đăng nhập qua các biến `VADS_DEMO_ADMIN_*` và
+`VADS_DEMO_USER_*` trước khi chạy lệnh seed.
 
 ### 2. Bật luồng demo đầy đủ ở local
 
