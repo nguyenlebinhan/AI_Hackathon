@@ -244,6 +244,7 @@ class DocumentService(Service):
                 commit=False,
             )
         document.deleted_at = now
+        document.is_deleted = True
         document.updated_at = now
         self.session.commit()
 

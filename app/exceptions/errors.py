@@ -9,12 +9,53 @@ class AppError(Exception):
         code: str,
         message: str,
         details: Any | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.details = details
+        self.headers = headers or {}
+
+
+class AuthenticationError(AppError):
+    def __init__(
+        self,
+        code: str = "INVALID_AUTHENTICATION",
+        message: str = "Xác thực không hợp lệ.",
+    ) -> None:
+        super().__init__(
+            status_code=401,
+            code=code,
+            message=message,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+class AuthorizationError(AppError):
+    def __init__(
+        self,
+        code: str = "FORBIDDEN",
+        message: str = "Bạn không có quyền thực hiện thao tác này.",
+    ) -> None:
+        super().__init__(status_code=403, code=code, message=message)
+
+
+class BadRequestError(AppError):
+    def __init__(self, code: str, message: str, details: Any | None = None) -> None:
+        super().__init__(status_code=400, code=code, message=message, details=details)
+
+
+class RateLimitError(AppError):
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(
+            status_code=429,
+            code="LOGIN_RATE_LIMITED",
+            message="Có quá nhiều lần đăng nhập thất bại. Vui lòng thử lại sau.",
+            details={"retryAfterSeconds": retry_after_seconds},
+            headers={"Retry-After": str(max(1, retry_after_seconds))},
+        )
 
 
 class NotFoundError(AppError):
@@ -25,6 +66,8 @@ class NotFoundError(AppError):
             "DOCUMENT_PAGE": "trang tài liệu",
             "PROCESSING_JOB": "processing job",
             "CHUNK": "chunk",
+            "USER": "người dùng",
+            "AUDIT_LOG": "nhật ký hoạt động",
         }
         super().__init__(
             status_code=404,

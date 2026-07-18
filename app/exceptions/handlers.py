@@ -37,11 +37,28 @@ def _error_body(
     }
 
 
+def _safe_validation_errors(exc: RequestValidationError) -> list[dict[str, Any]]:
+    errors: list[dict[str, Any]] = []
+    for error in exc.errors():
+        safe_error = dict(error)
+        # Echoing Pydantic's input is unnecessary and can reflect passwords,
+        # refresh tokens or even an entire malformed JSON body.
+        safe_error.pop("input", None)
+        context = safe_error.get("ctx")
+        if isinstance(context, dict):
+            safe_error["ctx"] = {
+                key: str(value)[:256] for key, value in context.items()
+            }
+        errors.append(safe_error)
+    return errors
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code,
+            headers=exc.headers,
             content=_error_body(
                 request,
                 code=exc.code,
@@ -61,7 +78,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 request,
                 code="REQUEST_VALIDATION_ERROR",
                 message="Dữ liệu gửi lên không hợp lệ.",
-                details=exc.errors(),
+                details=_safe_validation_errors(exc),
             ),
         )
 

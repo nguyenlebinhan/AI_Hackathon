@@ -1,5 +1,10 @@
 # VADS Document Pipeline
 
+Thiết kế và implementation Authentication/Authorization đa xã nằm tại
+[docs/authentication-authorization.md](docs/authentication-authorization.md). API bảo mật dùng
+prefix /api/v1, access JWT 10 phút và opaque refresh rotation. Route legacy không có tenant
+scope mặc định bị tắt; chỉ bật cho test/chuyển đổi bằng VADS_LEGACY_API_ENABLED=true.
+
 Backend Python 3.12 cho phần việc **Người 1** của VADS: tiếp nhận PDF/DOCX, lưu MinIO,
 xử lý nền qua Celery, trích xuất trang và OCR có chọn lọc, nhận diện cấu trúc pháp lý,
 tạo `DocumentChunk` và cung cấp read interface cho các module phía sau.
