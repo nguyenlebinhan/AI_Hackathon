@@ -52,6 +52,10 @@ class RegulatoryChangeService:
         upload: UploadFile,
         metadata: RegulatoryUploadMetadata,
         document_service: DocumentService,
+        *,
+        uploaded_by: str | None = None,
+        commune_id: str | None = None,
+        owner_id: str | None = None,
     ) -> RegulatoryUploadData:
         upload.file.seek(0)
         max_bytes = document_service.settings.max_upload_size_bytes
@@ -90,6 +94,9 @@ class RegulatoryChangeService:
             metadata.workspace_id,
             upload,
             display_name=metadata.title,
+            uploaded_by=uploaded_by,
+            commune_id=commune_id,
+            owner_id=owner_id,
         )
         if family is None:
             family = RegulatoryDocumentFamily(
@@ -150,7 +157,13 @@ class RegulatoryChangeService:
             processing_status=upload_result.status.value,
         )
 
-    def list_documents(self, workspace_id: str | None = None) -> list[RegulatoryDocumentData]:
+    def list_documents(
+        self,
+        workspace_id: str | None = None,
+        *,
+        owner_id: str | None = None,
+        commune_id: str | None = None,
+    ) -> list[RegulatoryDocumentData]:
         query = (
             select(RegulatoryDocumentVersion, RegulatoryDocumentFamily)
             .join(
@@ -161,6 +174,15 @@ class RegulatoryChangeService:
         )
         if workspace_id:
             query = query.where(RegulatoryDocumentFamily.workspace_id == workspace_id)
+        if owner_id is not None or commune_id is not None:
+            query = query.join(
+                Document,
+                Document.id == RegulatoryDocumentVersion.document_id,
+            ).where(Document.is_deleted.is_(False), Document.deleted_at.is_(None))
+        if owner_id is not None:
+            query = query.where(Document.owner_id == owner_id)
+        if commune_id is not None:
+            query = query.where(Document.commune_id == commune_id)
         return [
             self._document_data(version, family) for version, family in self.session.execute(query)
         ]

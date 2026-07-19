@@ -162,8 +162,7 @@ class AnalyzeRequest(APIModel):
     force: bool = False
 
 
-class RegulatoryUploadMetadata(APIModel):
-    workspace_id: str = Field(min_length=1, max_length=40)
+class RegulatoryUploadDetails(APIModel):
     family_key: str | None = Field(default=None, max_length=255)
     title: str = Field(min_length=1, max_length=500)
     document_number: str = Field(min_length=1, max_length=160)
@@ -179,3 +178,7 @@ class RegulatoryUploadMetadata(APIModel):
         if self.effective_date < self.issued_date:
             raise ValueError("effectiveDate must be on or after issuedDate")
         return self
+
+
+class RegulatoryUploadMetadata(RegulatoryUploadDetails):
+    workspace_id: str = Field(min_length=1, max_length=40)

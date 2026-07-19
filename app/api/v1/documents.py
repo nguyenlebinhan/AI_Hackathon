@@ -2,8 +2,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Path, Query, Request, Response, UploadFile, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from app.config.database import get_db
 from app.config.settings import Settings, get_settings
@@ -13,8 +13,8 @@ from app.database.async_session import get_async_db
 from app.dependencies.permissions import require_permission
 from app.exceptions import NotFoundError
 from app.model.documents import Document
-from app.model.workspaces import Workspace, WorkspaceStatus
 from app.model.users import User
+from app.model.workspaces import Workspace, WorkspaceStatus
 from app.schemas.document import DocumentPublic, DocumentUploadPublic, document_to_public
 from app.service.documents import DocumentService
 from app.services.document_service import SecureDocumentService
@@ -25,7 +25,7 @@ from app.utils.task_dispatcher import TaskDispatcher, get_task_dispatcher
 router = APIRouter(prefix="/documents", tags=["Secure documents"])
 
 
-def _personal_workspace(session: Session, actor: User) -> Workspace:
+def get_or_create_personal_workspace(session: Session, actor: User) -> Workspace:
     workspace = session.scalar(
         select(Workspace)
         .where(
@@ -71,7 +71,7 @@ def upload_document(
     dispatcher: Annotated[TaskDispatcher, Depends(get_task_dispatcher)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DocumentUploadPublic:
-    workspace = _personal_workspace(session, actor)
+    workspace = get_or_create_personal_workspace(session, actor)
     result = DocumentService(
         session,
         storage=storage,

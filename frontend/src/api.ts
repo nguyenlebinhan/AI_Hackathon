@@ -90,6 +90,124 @@ export interface RagQueryResult {
   sources: RagSource[];
 }
 
+export interface ApiSuccessEnvelope<T> {
+  success: true;
+  data: T;
+  message: string;
+  timestamp: string;
+}
+
+export interface RegulatoryDocument {
+  id: string;
+  documentId: string;
+  familyId: string;
+  familyKey: string;
+  versionNumber: number;
+  title: string;
+  documentNumber: string;
+  documentType: string;
+  issuingAgency: string;
+  issuedDate: string;
+  effectiveDate: string;
+  domain: string;
+  applicableSubjects: string[];
+  status: "PARSED" | "ANALYZED" | "NEEDS_HUMAN_REVIEW";
+  executiveSummary: string;
+  createdAt: string;
+}
+
+export interface RegulatoryUploadMetadata {
+  familyKey?: string;
+  title: string;
+  documentNumber: string;
+  documentType: string;
+  issuingAgency: string;
+  issuedDate: string;
+  effectiveDate: string;
+  domain: string;
+  applicableSubjects: string[];
+}
+
+export interface RegulatorySummary {
+  documentId: string;
+  executiveSummary: string;
+  importantValues: Record<string, string>;
+  effectiveDate: string;
+  applicableSubjects: string[];
+  evidence: Array<{
+    sectionId: string;
+    location: string;
+    quote: string;
+  }>;
+}
+
+export interface RegulatoryChange {
+  id: string;
+  changeType: string;
+  status: string | null;
+  factKey: string;
+  oldValue: string | null;
+  newValue: string | null;
+  effectiveYear: number | null;
+  oldLocation: string | null;
+  newLocation: string | null;
+  summary: string;
+  confidence: number;
+  evidence: Array<Record<string, unknown>>;
+}
+
+export interface RegulatoryTimelineEntry {
+  documentId: string;
+  versionNumber: number;
+  issuedDate: string;
+  effectiveDate: string;
+  values: Record<string, string>;
+}
+
+export interface RegulatoryLegalRelation {
+  relationshipType: string;
+  citedReference: string;
+  status: string;
+  confidence: number;
+  evidence: Record<string, unknown>;
+}
+
+export interface RegulatoryImpact {
+  id: string;
+  documentVersionId: string;
+  documentId: string;
+  projectId: string;
+  projectName: string;
+  agentRunId: string;
+  impactLevel: string;
+  confidence: number;
+  reason: string;
+  affectedAreas: Array<Record<string, unknown>>;
+  departments: Array<Record<string, unknown>>;
+  recommendedActions: Array<Record<string, unknown>>;
+  evidence: Array<Record<string, unknown>>;
+  reviewStatus: string;
+}
+
+export interface RegulatoryAnalysis {
+  run: {
+    id: string;
+    status: string;
+    attempt: number;
+    errorMessage: string | null;
+  };
+  changes: RegulatoryChange[];
+  impacts: RegulatoryImpact[];
+}
+
+export interface RegulatoryIntelligenceData {
+  summary: RegulatorySummary;
+  versions: RegulatoryDocument[];
+  changes: RegulatoryChange[];
+  timeline: RegulatoryTimelineEntry[];
+  legalRelations: RegulatoryLegalRelation[];
+}
+
 interface ErrorEnvelope {
   error?: {
     code?: string;
@@ -317,6 +435,56 @@ export function queryDocumentRag(
       top_k: 5,
     }),
   });
+}
+
+function regulatoryData<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<ApiSuccessEnvelope<T>>(`/regulatory${path}`, init).then(
+    envelope => envelope.data,
+  );
+}
+
+export function listRegulatoryDocuments(): Promise<RegulatoryDocument[]> {
+  return regulatoryData<RegulatoryDocument[]>("/documents");
+}
+
+export function uploadRegulatoryDocument(
+  file: File,
+  metadata: RegulatoryUploadMetadata,
+): Promise<RegulatoryDocument> {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("metadata", JSON.stringify(metadata));
+  return regulatoryData<RegulatoryDocument>("/documents", {
+    method: "POST",
+    body,
+  });
+}
+
+export async function getRegulatoryIntelligence(
+  documentId: string,
+): Promise<RegulatoryIntelligenceData> {
+  const encodedId = encodeURIComponent(documentId);
+  const [summary, versions, changes, timeline, legalRelations] = await Promise.all([
+    regulatoryData<RegulatorySummary>(`/documents/${encodedId}/summary`),
+    regulatoryData<RegulatoryDocument[]>(`/documents/${encodedId}/versions`),
+    regulatoryData<RegulatoryChange[]>(`/documents/${encodedId}/changes`),
+    regulatoryData<RegulatoryTimelineEntry[]>(`/documents/${encodedId}/timeline`),
+    regulatoryData<RegulatoryLegalRelation[]>(`/documents/${encodedId}/legal-relations`),
+  ]);
+  return { summary, versions, changes, timeline, legalRelations };
+}
+
+export function analyzeRegulatoryDocument(
+  documentId: string,
+  force = false,
+): Promise<RegulatoryAnalysis> {
+  return regulatoryData<RegulatoryAnalysis>(
+    `/documents/${encodeURIComponent(documentId)}/analyze`,
+    {
+      method: "POST",
+      body: JSON.stringify({ force }),
+    },
+  );
 }
 
 export async function changePassword(

@@ -44,6 +44,15 @@ def test_openapi_exposes_complete_product_api(application: FastAPI) -> None:
         ("/api/v1/documents", "post"),
         ("/api/v1/documents/{document_id}/reprocess", "post"),
         ("/api/v1/rag/query", "post"),
+        ("/api/v1/regulatory/documents", "post"),
+        ("/api/v1/regulatory/documents", "get"),
+        ("/api/v1/regulatory/documents/{documentId}", "get"),
+        ("/api/v1/regulatory/documents/{documentId}/summary", "get"),
+        ("/api/v1/regulatory/documents/{documentId}/versions", "get"),
+        ("/api/v1/regulatory/documents/{documentId}/timeline", "get"),
+        ("/api/v1/regulatory/documents/{documentId}/changes", "get"),
+        ("/api/v1/regulatory/documents/{documentId}/legal-relations", "get"),
+        ("/api/v1/regulatory/documents/{documentId}/analyze", "post"),
     }
 
     for path, method in expected_operations:
@@ -62,10 +71,10 @@ def test_openapi_exposes_complete_product_api(application: FastAPI) -> None:
         for method in operations
     )
 
-    # Compatibility-mode tests expose the 49 consolidated legacy/health
-    # operations, 22 tenant-scoped v1 operations, and 2 DOCX RAG operations.
-    assert secure_operation_count == 22
-    assert operation_count == 73
+    # Compatibility-mode tests expose the consolidated legacy/health API,
+    # 31 tenant-scoped v1 operations, and the DOCX RAG compatibility routes.
+    assert secure_operation_count == 31
+    assert operation_count == 82
 
 
 def test_product_routes_use_unique_operation_ids(application: FastAPI) -> None:

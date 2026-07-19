@@ -15,6 +15,7 @@ Base URL mặc định là `/api/v1` và có thể đổi bằng `VITE_API_BASE_
 | Tài liệu | `GET/POST /documents`, `DELETE /documents/{id}` |
 | Xử lý lại | `POST /documents/{id}/reprocess` |
 | Hỏi đáp có nguồn | `POST /rag/query` |
+| Regulatory Change Intelligence | `/regulatory/documents`, `/regulatory/documents/{id}/summary`, `/timeline`, `/changes`, `/legal-relations`, `/analyze` |
 | Quản trị người dùng | `/admin/users`, `/staff-directory` |
 
 ### Điều kiện để hỏi đáp RAG hoạt động
