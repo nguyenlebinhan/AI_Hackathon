@@ -1,6 +1,7 @@
 import {
   ApiError,
   generateKnowledgeGraph,
+  getDocument,
   getKnowledgeGraph,
   listDocuments,
   listRegulatoryDocuments,
@@ -68,6 +69,30 @@ const vietnameseDate = new Intl.DateTimeFormat("vi-VN", {
   year: "numeric",
 });
 
+const GRAPH_READY_STATUSES = new Set<DocumentPublic["status"]>(["COMPLETED", "NEEDS_REVIEW"]);
+const GRAPH_FAILED_STATUSES = new Set<DocumentPublic["status"]>(["FAILED", "CANCELLED"]);
+const GRAPH_READY_TIMEOUT_MS = 120_000;
+const GRAPH_POLL_INTERVAL_MS = 2_000;
+const CHUNK_RETRY_ATTEMPTS = 6;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function processingStatusMessage(status: DocumentPublic["status"]): string {
+  switch (status) {
+    case "UPLOADED":
+    case "QUEUED":
+    case "PROCESSING":
+      return "Tài liệu vẫn đang được xử lý. Vui lòng thử lại khi xử lý hoàn tất.";
+    case "FAILED":
+      return "Tài liệu xử lý thất bại, chưa thể tạo sơ đồ trực quan.";
+    case "CANCELLED":
+      return "Tài liệu đã bị hủy xử lý, chưa thể tạo sơ đồ trực quan.";
+    default:
+      return `Trạng thái tài liệu ${status} chưa sẵn sàng để tạo sơ đồ trực quan.`;
+  }
+}
 function documentType(title: string): string {
   const normalized = title.trim().toLocaleLowerCase("vi");
   if (normalized.startsWith("nghị định")) return "Nghị định";
@@ -134,8 +159,9 @@ export async function loadLegacyPortalData(): Promise<LegacyPortalData> {
   };
 }
 
-export async function uploadLegacyDocument(file: File): Promise<void> {
-  await uploadDocument(file);
+export async function uploadLegacyDocument(file: File): Promise<LegacyDocument> {
+  const uploaded = await uploadDocument(file);
+  return mapDocument(await getDocument(uploaded.document_id));
 }
 
 function termsFromGraph(graph: KnowledgeGraph, document: LegacyDocument): LegacyKnowledgeTerm[] {
@@ -166,25 +192,65 @@ export async function loadLegacyKnowledgeTerms(
   );
   return settled.flat();
 }
-async function graphFor(documentId: string): Promise<KnowledgeGraph> {
+async function refreshLegacyDocument(documentId: string): Promise<LegacyDocument> {
+  return mapDocument(await getDocument(documentId));
+}
+
+async function waitForGraphInput(document: LegacyDocument): Promise<LegacyDocument> {
+  let current = document;
+  const deadline = Date.now() + GRAPH_READY_TIMEOUT_MS;
+
+  while (true) {
+    if (GRAPH_READY_STATUSES.has(current.status)) return current;
+    if (GRAPH_FAILED_STATUSES.has(current.status)) {
+      throw new Error(processingStatusMessage(current.status));
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(processingStatusMessage(current.status));
+    }
+    await sleep(GRAPH_POLL_INTERVAL_MS);
+    current = await refreshLegacyDocument(document.id);
+  }
+}
+
+async function graphFor(document: LegacyDocument): Promise<KnowledgeGraph> {
+  const readyDocument = await waitForGraphInput(document);
+
   try {
-    return await getKnowledgeGraph(documentId);
+    return await getKnowledgeGraph(readyDocument.id);
   } catch (reason) {
     if (!(reason instanceof ApiError) || reason.code !== "KNOWLEDGE_GRAPH_NOT_FOUND") {
       throw reason;
     }
   }
-  const generated = await generateKnowledgeGraph(documentId, false);
-  if (!generated.graph) {
-    throw new Error(`Workflow ${generated.workflowId} chưa tạo được đồ thị tri thức.`);
+
+  let lastChunkError: unknown = null;
+  for (let attempt = 0; attempt < CHUNK_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const generated = await generateKnowledgeGraph(readyDocument.id, false);
+      if (!generated.graph) {
+        throw new Error(`Workflow ${generated.workflowId} chưa tạo được đồ thị tri thức.`);
+      }
+      return generated.graph;
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.code === "KNOWLEDGE_GRAPH_CHUNKS_NOT_READY") {
+        lastChunkError = reason;
+        await sleep(GRAPH_POLL_INTERVAL_MS);
+        continue;
+      }
+      throw reason;
+    }
   }
-  return generated.graph;
+
+  throw lastChunkError instanceof Error
+    ? lastChunkError
+    : new Error("Tài liệu chưa có dữ liệu chunk để tạo sơ đồ trực quan.");
 }
 
 export async function loadLegacyGraph(
   document: LegacyDocument,
 ): Promise<{ tree: LegacyTreeNode; terms: LegacyKnowledgeTerm[] }> {
-  const graph = await graphFor(document.id);
+  const graph = await graphFor(document);
   const outgoing = new Map<string, string[]>();
   for (const edge of graph.edges) {
     const target = graph.nodes.find(node => node.id === edge.targetNodeId);

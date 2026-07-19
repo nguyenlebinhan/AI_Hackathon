@@ -445,6 +445,9 @@ export async function listDocuments(): Promise<DocumentPublic[]> {
   }
 }
 
+export function getDocument(documentId: string): Promise<DocumentPublic> {
+  return request<DocumentPublic>(`/documents/${encodeURIComponent(documentId)}`);
+}
 async function listAll<T>(path: string): Promise<T[]> {
   const values: T[] = [];
   const pageSize = 100;

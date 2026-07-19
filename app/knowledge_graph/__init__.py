@@ -1,3 +1,4 @@
+from app.knowledge_graph.local_extractor import RuleBasedKnowledgeGraphExtractor
 from app.knowledge_graph.normalization import GraphDeduplicator, NodeNormalizer
 from app.knowledge_graph.reader import KnowledgeGraphReader, SqlAlchemyKnowledgeGraphReader
 from app.knowledge_graph.schemas import (
@@ -22,5 +23,6 @@ __all__ = [
     "KnowledgeNodeDraft",
     "NodeNormalizer",
     "NodeType",
+    "RuleBasedKnowledgeGraphExtractor",
     "SqlAlchemyKnowledgeGraphReader",
 ]

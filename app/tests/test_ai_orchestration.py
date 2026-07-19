@@ -11,6 +11,8 @@ from app.citations.schemas import CitationDraft
 from app.citations.validator import CitationValidator
 from app.common.contracts import DocumentChunkContract, SectionSearchFilters
 from app.exceptions.errors import AppError
+from app.knowledge_graph.local_extractor import LOCAL_KNOWLEDGE_GRAPH_EXECUTOR
+from app.knowledge_graph.models import GraphVersion
 from app.knowledge_graph.normalization import GraphDeduplicator, NodeNormalizer
 from app.knowledge_graph.schemas import (
     EdgeType,
@@ -32,7 +34,7 @@ from app.model_gateway.errors import (
     ModelUnavailableError,
     StructuredOutputError,
 )
-from app.model_gateway.gateway import CallableModelGateway
+from app.model_gateway.gateway import CallableModelGateway, UnavailableModelGateway
 from app.model_gateway.registry import build_default_registry
 from app.model_gateway.router import ModelRouter
 from app.model_gateway.schemas import RoutingRequest, TaskType
@@ -510,6 +512,45 @@ def test_knowledge_graph_service_rejects_document_without_chunks(
     assert exc_info.value.status_code == 409
     assert exc_info.value.code == "KNOWLEDGE_GRAPH_CHUNKS_NOT_READY"
     assert exc_info.value.details == {"documentId": document.id, "chunkCount": 0}
+
+
+def test_knowledge_graph_service_uses_local_fallback_without_model_provider(
+    session_factory: sessionmaker[Session],
+) -> None:
+    with session_factory() as session:
+        document = _document(session)
+        source_chunk = _stored_chunk(session, document)
+        source_reader = FakeChunkReader([source_chunk])
+        result = KnowledgeGraphService(
+            session,
+            gateway=UnavailableModelGateway(),
+            planner=ExecutionPlanner(ModelRouter(build_default_registry())),
+            chunk_reader=source_reader,
+            citation_validator=CitationValidator(
+                source_reader,
+                document_exists=lambda candidate: candidate == document.id,
+            ),
+        ).generate(document.id)
+
+        assert result.graph is not None
+        assert result.graph.status.value == "NEEDS_REVIEW"
+        assert {node.type for node in result.graph.nodes} >= {
+            NodeType.LEGAL_DOCUMENT,
+            NodeType.LEGAL_PROVISION,
+            NodeType.AGENCY,
+            NodeType.TASK,
+            NodeType.DEADLINE,
+        }
+        assert any(edge.type == EdgeType.CONTAINS for edge in result.graph.edges)
+        assert any(edge.type == EdgeType.ASSIGNS_RESPONSIBILITY for edge in result.graph.edges)
+        assert all(node.citations for node in result.graph.nodes)
+
+        version = session.get(GraphVersion, result.graph.version_id)
+        assert version is not None
+        assert version.model_pipeline == [LOCAL_KNOWLEDGE_GRAPH_EXECUTOR] * 3
+        assert any(
+            issue["code"] == "LOCAL_RULE_BASED_FALLBACK" for issue in version.validation_issues
+        )
 
 
 def test_knowledge_graph_service_reports_failed_workflow_step(

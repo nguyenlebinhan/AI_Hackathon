@@ -1327,23 +1327,33 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 
 function DashboardScreen({ onNavigate, onAnalyzeUploaded }: {
   onNavigate: (s: Screen) => void;
-  onAnalyzeUploaded: () => void;
+  onAnalyzeUploaded: (document?: LegacyDocument) => void;
 }) {
   const [baoCaoFile, setBaoCaoFile] = useState<string | null>(null);
   const [vanBanFile, setVanBanFile] = useState<string | null>(null);
+  const [baoCaoDocument, setBaoCaoDocument] = useState<LegacyDocument | null>(null);
+  const [vanBanDocument, setVanBanDocument] = useState<LegacyDocument | null>(null);
+  const [uploadingCount, setUploadingCount] = useState(0);
   const baoCaoRef = useRef<HTMLInputElement>(null);
   const vanBanRef = useRef<HTMLInputElement>(null);
   const receiveFile = async (
     file: File,
     setName: React.Dispatch<React.SetStateAction<string | null>>,
+    setDocument: React.Dispatch<React.SetStateAction<LegacyDocument | null>>,
   ) => {
     setName(file.name);
+    setDocument(null);
+    setUploadingCount(count => count + 1);
     try {
-      await uploadLegacyDocument(file);
+      const uploaded = await uploadLegacyDocument(file);
+      setDocument(uploaded);
       window.dispatchEvent(new Event("vads:documents-changed"));
     } catch (reason) {
       setName(null);
+      setDocument(null);
       window.alert(reason instanceof Error ? reason.message : "Không thể tải tài liệu lên.");
+    } finally {
+      setUploadingCount(count => Math.max(0, count - 1));
     }
   };
   const CARDS = [
@@ -1373,15 +1383,15 @@ function DashboardScreen({ onNavigate, onAnalyzeUploaded }: {
             <div
               onClick={() => baoCaoRef.current?.click()}
               onDragOver={e => e.preventDefault()}
-              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) void receiveFile(f, setBaoCaoFile); }}
+              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) void receiveFile(f, setBaoCaoFile, setBaoCaoDocument); }}
               className={`rounded-xl border-2 border-dashed cursor-pointer flex flex-col items-center justify-center py-8 px-4 transition-all ${baoCaoFile ? "border-emerald-300 bg-emerald-50" : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"}`}
             >
-              <input ref={baoCaoRef} type="file" className="hidden" accept=".pdf,.doc,.docx" onChange={e => { if (e.target.files?.[0]) void receiveFile(e.target.files[0], setBaoCaoFile); }} />
+              <input ref={baoCaoRef} type="file" className="hidden" accept=".pdf,.doc,.docx" onChange={e => { if (e.target.files?.[0]) void receiveFile(e.target.files[0], setBaoCaoFile, setBaoCaoDocument); }} />
               {baoCaoFile ? (
                 <>
                   <CheckCircle2 className="w-8 h-8 text-emerald-500 mb-2" />
                   <p className="text-xs font-semibold text-emerald-700 text-center break-all px-1 leading-snug">{baoCaoFile}</p>
-                  <button onClick={e => { e.stopPropagation(); setBaoCaoFile(null); }} className="text-[10px] text-gray-400 hover:text-red-500 mt-2 transition-colors">Xóa tệp</button>
+                  <button onClick={e => { e.stopPropagation(); setBaoCaoFile(null); setBaoCaoDocument(null); }} className="text-[10px] text-gray-400 hover:text-red-500 mt-2 transition-colors">Xóa tệp</button>
                 </>
               ) : (
                 <>
@@ -1401,15 +1411,15 @@ function DashboardScreen({ onNavigate, onAnalyzeUploaded }: {
             <div
               onClick={() => vanBanRef.current?.click()}
               onDragOver={e => e.preventDefault()}
-              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) void receiveFile(f, setVanBanFile); }}
+              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) void receiveFile(f, setVanBanFile, setVanBanDocument); }}
               className={`rounded-xl border-2 border-dashed cursor-pointer flex flex-col items-center justify-center py-8 px-4 transition-all ${vanBanFile ? "border-emerald-300 bg-emerald-50" : "border-gray-200 hover:border-[#C41E3A]/50 hover:bg-red-50/30"}`}
             >
-              <input ref={vanBanRef} type="file" className="hidden" accept=".pdf,.doc,.docx" onChange={e => { if (e.target.files?.[0]) void receiveFile(e.target.files[0], setVanBanFile); }} />
+              <input ref={vanBanRef} type="file" className="hidden" accept=".pdf,.doc,.docx" onChange={e => { if (e.target.files?.[0]) void receiveFile(e.target.files[0], setVanBanFile, setVanBanDocument); }} />
               {vanBanFile ? (
                 <>
                   <CheckCircle2 className="w-8 h-8 text-emerald-500 mb-2" />
                   <p className="text-xs font-semibold text-emerald-700 text-center break-all px-1 leading-snug">{vanBanFile}</p>
-                  <button onClick={e => { e.stopPropagation(); setVanBanFile(null); }} className="text-[10px] text-gray-400 hover:text-red-500 mt-2 transition-colors">Xóa tệp</button>
+                  <button onClick={e => { e.stopPropagation(); setVanBanFile(null); setVanBanDocument(null); }} className="text-[10px] text-gray-400 hover:text-red-500 mt-2 transition-colors">Xóa tệp</button>
                 </>
               ) : (
                 <>
@@ -1432,11 +1442,18 @@ function DashboardScreen({ onNavigate, onAnalyzeUploaded }: {
             {!baoCaoFile && !vanBanFile && <p className="text-[11px] text-gray-400">Cần tải lên đủ 2 tài liệu để bắt đầu phân tích</p>}
           </div>
           <button
-            disabled={!baoCaoFile || !vanBanFile}
-            onClick={() => { onAnalyzeUploaded(); onNavigate("processing"); }}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex-shrink-0 ${baoCaoFile && vanBanFile ? "bg-[#C41E3A] hover:bg-[#a8172f] text-white shadow-md shadow-[#C41E3A]/25" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}
+            disabled={uploadingCount > 0 || !baoCaoFile || !vanBanFile}
+            onClick={() => {
+              const document = vanBanDocument
+                ?? baoCaoDocument
+                ?? MY_DOCUMENTS.find(item => item.name === vanBanFile)
+                ?? MY_DOCUMENTS.find(item => item.name === baoCaoFile);
+              onAnalyzeUploaded(document);
+              onNavigate("processing");
+            }}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex-shrink-0 ${uploadingCount === 0 && baoCaoFile && vanBanFile ? "bg-[#C41E3A] hover:bg-[#a8172f] text-white shadow-md shadow-[#C41E3A]/25" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}
           >
-            <Brain className="w-3.5 h-3.5" />Bắt đầu phân tích
+            <Brain className="w-3.5 h-3.5" />{uploadingCount > 0 ? "Đang tải tài liệu..." : "Bắt đầu phân tích"}
           </button>
         </div>
       </div>
@@ -2482,8 +2499,9 @@ export default function UserPortal({ currentUser, onLogout }: { currentUser: Use
     <>
       <button onClick={onLogout} title={`Đăng xuất ${currentUser.full_name}`} className="fixed right-5 bottom-5 z-50 bg-[#0F1623] text-white px-4 py-2 rounded-xl text-xs font-semibold shadow-xl hover:bg-black">Đăng xuất</button>
       <MainLayout active={screen} title={TITLES[screen]} onNavigate={navigate} collapsed={collapsed} onToggle={() => setCollapsed(v => !v)} onProfile={() => setShowProfile(true)} onImport={() => setShowImport(true)}>
-        {screen === "dashboard" && <DashboardScreen onNavigate={navigate} onAnalyzeUploaded={() => {
-          if (MY_DOCUMENTS[0]) selectDocument(MY_DOCUMENTS[0]);
+        {screen === "dashboard" && <DashboardScreen onNavigate={navigate} onAnalyzeUploaded={(document) => {
+          if (document) selectDocument(document);
+          else if (MY_DOCUMENTS[0]) selectDocument(MY_DOCUMENTS[0]);
         }} />}
         {screen === "documents" && <MyDocumentsScreen onNavigate={navigate} onSelectDocument={selectDocument} />}
         {screen === "library" && <LegalLibraryScreen onNavigate={navigate} onSelectDocument={selectDocument} />}

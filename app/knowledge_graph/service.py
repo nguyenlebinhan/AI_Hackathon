@@ -10,6 +10,10 @@ from app.citations.schemas import CitationOwnerType
 from app.citations.validator import CitationValidator
 from app.documents.interfaces import DocumentChunkContract, DocumentChunkReader
 from app.exceptions.errors import AppError
+from app.knowledge_graph.local_extractor import (
+    LOCAL_KNOWLEDGE_GRAPH_EXECUTOR,
+    RuleBasedKnowledgeGraphExtractor,
+)
 from app.knowledge_graph.normalization import GraphDeduplicator, NodeNormalizer
 from app.knowledge_graph.prompts import (
     GRAPH_EXTRACTION_PROMPT_VERSION,
@@ -21,6 +25,7 @@ from app.knowledge_graph.repository import KnowledgeGraphRepository
 from app.knowledge_graph.schemas import (
     EdgeType,
     GraphExtractionOutput,
+    GraphValidationIssue,
     GraphVersionStatus,
     KnowledgeEdgeDraft,
     KnowledgeGraphGenerationResult,
@@ -28,7 +33,8 @@ from app.knowledge_graph.schemas import (
     VerificationStatus,
 )
 from app.knowledge_graph.validator import KnowledgeGraphValidator
-from app.model_gateway.gateway import ModelGateway
+from app.model.documents import Document
+from app.model_gateway.gateway import MetadataModelGateway, ModelGateway, UnavailableModelGateway
 from app.model_gateway.schemas import TaskType
 from app.orchestrator.executor import WorkflowExecutor
 from app.orchestrator.planner import ExecutionPlanner
@@ -54,6 +60,7 @@ class KnowledgeGraphService:
         planner: ExecutionPlanner,
         chunk_reader: DocumentChunkReader,
         citation_validator: CitationValidator,
+        local_extractor: RuleBasedKnowledgeGraphExtractor | None = None,
     ) -> None:
         self.session = session
         self.gateway = gateway
@@ -65,6 +72,7 @@ class KnowledgeGraphService:
         self.normalizer = NodeNormalizer()
         self.deduplicator = GraphDeduplicator()
         self.validator = KnowledgeGraphValidator(citation_validator)
+        self.local_extractor = local_extractor or RuleBasedKnowledgeGraphExtractor()
 
     def generate(
         self,
@@ -81,6 +89,26 @@ class KnowledgeGraphService:
                 details={"documentId": document_id, "chunkCount": 0},
             )
         plan = self.planner.knowledge_graph_plan(document_id, private=private)
+        use_local_fallback = self._uses_unavailable_gateway()
+        if use_local_fallback:
+            plan = plan.model_copy(
+                update={
+                    "steps": [
+                        step.model_copy(
+                            update={
+                                "executor": LOCAL_KNOWLEDGE_GRAPH_EXECUTOR,
+                                "reason_for_selection": (
+                                    "No model provider is configured; use the source-grounded "
+                                    "local knowledge-graph extractor"
+                                ),
+                                "max_retries": 0,
+                                "fallback_model": None,
+                            }
+                        )
+                        for step in plan.steps
+                    ]
+                }
+            )
 
         def extract(
             step: ExecutionStep,
@@ -88,6 +116,13 @@ class KnowledgeGraphService:
             dependencies: dict[str, Any],
         ) -> GraphExtractionOutput:
             del dependencies
+            if use_local_fallback:
+                document = self.session.get(Document, document_id)
+                return self.local_extractor.extract(
+                    document_id,
+                    chunks,
+                    document_name=document.display_name if document is not None else None,
+                )
             return self.gateway.generate_structured(
                 model_alias=model_alias,
                 prompt=self._extraction_prompt(document_id, chunks),
@@ -104,13 +139,16 @@ class KnowledgeGraphService:
             extracted = GraphExtractionOutput.model_validate(
                 dependencies["extract-entities-relations"]
             )
-            normalized_by_model = self.gateway.generate_structured(
-                model_alias=model_alias,
-                prompt=self._normalization_prompt(extracted),
-                output_schema=GraphExtractionOutput,
-                timeout_seconds=step.timeout_seconds,
-                metadata={"workflowId": plan.workflow_id, "stepId": step.step_id},
-            )
+            if use_local_fallback:
+                normalized_by_model = extracted
+            else:
+                normalized_by_model = self.gateway.generate_structured(
+                    model_alias=model_alias,
+                    prompt=self._normalization_prompt(extracted),
+                    output_schema=GraphExtractionOutput,
+                    timeout_seconds=step.timeout_seconds,
+                    metadata={"workflowId": plan.workflow_id, "stepId": step.step_id},
+                )
             return self.deduplicator.deduplicate(self.normalizer.normalize(normalized_by_model))
 
         def verify(
@@ -119,6 +157,8 @@ class KnowledgeGraphService:
             dependencies: dict[str, Any],
         ) -> GraphExtractionOutput:
             graph = GraphExtractionOutput.model_validate(dependencies["normalize-graph"])
+            if use_local_fallback:
+                return graph
             complex_edges = self._complex_edges(graph)
             if not complex_edges:
                 return graph
@@ -180,6 +220,18 @@ class KnowledgeGraphService:
             )
         graph = GraphExtractionOutput.model_validate(final_step.output)
         issues = self.validator.validate(graph, document_id=document_id)
+        if use_local_fallback:
+            issues.append(
+                GraphValidationIssue(
+                    code="LOCAL_RULE_BASED_FALLBACK",
+                    elementType="GRAPH",
+                    elementId=document_id,
+                    message=(
+                        "Graph was extracted locally because no model provider was configured; "
+                        "inferred relations require human review."
+                    ),
+                )
+            )
         invalid_nodes = {issue.element_id for issue in issues if issue.element_type == "NODE"}
         invalid_edges = {issue.element_id for issue in issues if issue.element_type == "EDGE"}
         kept_nodes = [node for node in graph.nodes if node.node_id not in invalid_nodes]
@@ -191,7 +243,11 @@ class KnowledgeGraphService:
             and edge.source_node_id in kept_node_ids
             and edge.target_node_id in kept_node_ids
         ]
-        if any(edge.verification_status == VerificationStatus.NEEDS_REVIEW for edge in kept_edges):
+        if use_local_fallback:
+            status = GraphVersionStatus.NEEDS_REVIEW
+        elif any(
+            edge.verification_status == VerificationStatus.NEEDS_REVIEW for edge in kept_edges
+        ):
             status = GraphVersionStatus.NEEDS_REVIEW
         else:
             status = GraphVersionStatus.NEEDS_REVIEW if issues else GraphVersionStatus.COMPLETED
@@ -228,6 +284,12 @@ class KnowledgeGraphService:
         self.session.commit()
         view = SqlAlchemyKnowledgeGraphReader(self.session).get_version(version.id)
         return KnowledgeGraphGenerationResult(workflowId=plan.workflow_id, graph=view)
+
+    def _uses_unavailable_gateway(self) -> bool:
+        gateway = self.gateway
+        while isinstance(gateway, MetadataModelGateway):
+            gateway = gateway.gateway
+        return isinstance(gateway, UnavailableModelGateway)
 
     def _persist_citations(
         self,
