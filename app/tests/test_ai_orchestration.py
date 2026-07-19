@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.citations.schemas import CitationDraft
 from app.citations.validator import CitationValidator
 from app.common.contracts import DocumentChunkContract, SectionSearchFilters
+from app.exceptions.errors import AppError
 from app.knowledge_graph.normalization import GraphDeduplicator, NodeNormalizer
 from app.knowledge_graph.schemas import (
     EdgeType,
@@ -26,7 +27,11 @@ from app.model.extraction import DocumentPage, PageBlock
 from app.model.processing import ProcessingStatus
 from app.model.workspaces import Workspace
 from app.model_audit.models import ModelExecution
-from app.model_gateway.errors import ModelRateLimitError, StructuredOutputError
+from app.model_gateway.errors import (
+    ModelRateLimitError,
+    ModelUnavailableError,
+    StructuredOutputError,
+)
 from app.model_gateway.gateway import CallableModelGateway
 from app.model_gateway.registry import build_default_registry
 from app.model_gateway.router import ModelRouter
@@ -482,6 +487,62 @@ def test_knowledge_graph_service_runs_extraction_normalization_and_dedup(
         assert result.graph is not None
         assert len(result.graph.nodes) == 2
         assert len(result.graph.edges) == 1
+
+
+def test_knowledge_graph_service_rejects_document_without_chunks(
+    session_factory: sessionmaker[Session],
+) -> None:
+    with session_factory() as session:
+        document = _document(session)
+        source_reader = FakeChunkReader([])
+        with pytest.raises(AppError) as exc_info:
+            KnowledgeGraphService(
+                session,
+                gateway=CallableModelGateway(lambda operation, model, payload: {}),
+                planner=ExecutionPlanner(ModelRouter(build_default_registry())),
+                chunk_reader=source_reader,
+                citation_validator=CitationValidator(
+                    source_reader,
+                    document_exists=lambda candidate: candidate == document.id,
+                ),
+            ).generate(document.id)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.code == "KNOWLEDGE_GRAPH_CHUNKS_NOT_READY"
+    assert exc_info.value.details == {"documentId": document.id, "chunkCount": 0}
+
+
+def test_knowledge_graph_service_reports_failed_workflow_step(
+    session_factory: sessionmaker[Session],
+) -> None:
+    def unavailable(operation: str, model: str, payload: dict[str, Any]) -> object:
+        del operation, payload
+        raise ModelUnavailableError(model, f"Model {model} is not configured")
+
+    with session_factory() as session:
+        document = _document(session)
+        source_reader = FakeChunkReader([chunk(document.id)])
+        with pytest.raises(AppError) as exc_info:
+            KnowledgeGraphService(
+                session,
+                gateway=CallableModelGateway(unavailable),
+                planner=ExecutionPlanner(ModelRouter(build_default_registry())),
+                chunk_reader=source_reader,
+                citation_validator=CitationValidator(
+                    source_reader,
+                    document_exists=lambda candidate: candidate == document.id,
+                ),
+            ).generate(document.id)
+
+    error = exc_info.value
+    assert error.status_code == 502
+    assert error.code == "KNOWLEDGE_GRAPH_GENERATION_FAILED"
+    assert error.details["chunkCount"] == 1
+    assert error.details["workflowStatus"] == "FAILED"
+    failed_steps = error.details["failedSteps"]
+    assert failed_steps[0]["stepId"] == "extract-entities-relations"
+    assert failed_steps[0]["status"] == "FAILED"
+    assert "not configured" in failed_steps[0]["error"]
 
 
 def test_entity_and_relation_extraction_schema() -> None:

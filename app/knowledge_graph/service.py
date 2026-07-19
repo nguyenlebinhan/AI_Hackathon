@@ -9,6 +9,7 @@ from app.citations.repository import CitationRepository
 from app.citations.schemas import CitationOwnerType
 from app.citations.validator import CitationValidator
 from app.documents.interfaces import DocumentChunkContract, DocumentChunkReader
+from app.exceptions.errors import AppError
 from app.knowledge_graph.normalization import GraphDeduplicator, NodeNormalizer
 from app.knowledge_graph.prompts import (
     GRAPH_EXTRACTION_PROMPT_VERSION,
@@ -72,6 +73,13 @@ class KnowledgeGraphService:
         private: bool = False,
     ) -> KnowledgeGraphGenerationResult:
         chunks = self.chunk_reader.list_chunks(document_id)
+        if not chunks:
+            raise AppError(
+                status_code=409,
+                code="KNOWLEDGE_GRAPH_CHUNKS_NOT_READY",
+                message="Tài liệu chưa có dữ liệu chunk để tạo đồ thị tri thức.",
+                details={"documentId": document_id, "chunkCount": 0},
+            )
         plan = self.planner.knowledge_graph_plan(document_id, private=private)
 
         def extract(
@@ -147,7 +155,29 @@ class KnowledgeGraphService:
         )
         final_step = result.steps[-1]
         if final_step.status != StepStatus.COMPLETED or final_step.output is None:
-            return KnowledgeGraphGenerationResult(workflowId=plan.workflow_id, graph=None)
+            failed_steps = [
+                {
+                    "stepId": step.step_id,
+                    "taskType": step.task_type.value,
+                    "executor": step.executor,
+                    "status": step.status.value,
+                    "attempts": step.attempts,
+                    "error": step.error[:1000] if step.error else None,
+                }
+                for step in result.steps
+                if step.status != StepStatus.COMPLETED
+            ]
+            raise AppError(
+                status_code=502,
+                code="KNOWLEDGE_GRAPH_GENERATION_FAILED",
+                message="Workflow AI không thể tạo đồ thị tri thức.",
+                details={
+                    "workflowId": result.workflow_id,
+                    "workflowStatus": result.status.value,
+                    "chunkCount": len(chunks),
+                    "failedSteps": failed_steps,
+                },
+            )
         graph = GraphExtractionOutput.model_validate(final_step.output)
         issues = self.validator.validate(graph, document_id=document_id)
         invalid_nodes = {issue.element_id for issue in issues if issue.element_type == "NODE"}

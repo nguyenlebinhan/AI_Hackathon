@@ -46,6 +46,30 @@ function messageOf(reason: unknown): string {
   return reason instanceof Error ? reason.message : "Không thể kết nối tới máy chủ.";
 }
 
+function generationErrorMessage(reason: unknown): string {
+  if (!(reason instanceof ApiError) || !reason.details || typeof reason.details !== "object") {
+    return messageOf(reason);
+  }
+  const details = reason.details as {
+    workflowId?: unknown;
+    failedSteps?: unknown;
+  };
+  const workflow = typeof details.workflowId === "string"
+    ? `Workflow ${details.workflowId}.`
+    : "";
+  const failedSteps = Array.isArray(details.failedSteps)
+    ? details.failedSteps.flatMap(step => {
+        if (!step || typeof step !== "object") return [];
+        const value = step as Record<string, unknown>;
+        const stepId = typeof value.stepId === "string" ? value.stepId : "unknown-step";
+        const executor = typeof value.executor === "string" ? ` / ${value.executor}` : "";
+        const error = typeof value.error === "string" ? value.error : String(value.status ?? "FAILED");
+        return [`${stepId}${executor}: ${error}`];
+      })
+    : [];
+  return [reason.message, workflow, ...failedSteps].filter(Boolean).join(" ");
+}
+
 function humanize(value: string): string {
   return value
     .replaceAll("_", " ")
@@ -308,7 +332,11 @@ export default function KnowledgeGraphScreen({ documents }: { documents: Documen
       setGraph(value);
       setSelected(value.nodes[0] ? { kind: "node", id: value.nodes[0].id } : null);
     } catch (reason) {
-      if (reason instanceof ApiError && reason.status === 404) {
+      if (
+        reason instanceof ApiError
+        && reason.status === 404
+        && reason.code === "KNOWLEDGE_GRAPH_NOT_FOUND"
+      ) {
         setGraph(null);
         setSelected(null);
       } else {
@@ -347,7 +375,7 @@ export default function KnowledgeGraphScreen({ documents }: { documents: Documen
       setSelected(result.graph.nodes[0] ? { kind: "node", id: result.graph.nodes[0].id } : null);
       setSuccess(`Đã tạo Knowledge Graph phiên bản ${result.graph.version} với ${result.graph.nodes.length} node và ${result.graph.edges.length} quan hệ.`);
     } catch (reason) {
-      setError(messageOf(reason));
+      setError(generationErrorMessage(reason));
     } finally {
       setGenerating(false);
     }
