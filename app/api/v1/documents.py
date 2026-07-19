@@ -48,7 +48,7 @@ def get_or_create_personal_workspace(session: Session, actor: User) -> Workspace
     return workspace
 
 
-def _owned_document(session: Session, actor: User, document_id: str) -> Document:
+def get_owned_document(session: Session, actor: User, document_id: str) -> Document:
     document = session.scalar(
         select(Document).where(
             Document.id == document_id,
@@ -105,7 +105,7 @@ def reprocess_document(
     dispatcher: Annotated[TaskDispatcher, Depends(get_task_dispatcher)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DocumentUploadPublic:
-    _owned_document(session, actor, document_id)
+    get_owned_document(session, actor, document_id)
     result = DocumentService(
         session,
         storage=storage,

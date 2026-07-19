@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle, Bell, Brain, CheckCircle2, FileText, LayoutDashboard,
-  Loader2, Lock, LogOut, Menu, MessageSquare, RefreshCw, RotateCcw,
+  Loader2, Lock, LogOut, Menu, MessageSquare, Network, RefreshCw, RotateCcw,
   Scale, Search, Send, Trash2, Upload, X,
 } from 'lucide-react';
 
@@ -11,9 +11,10 @@ import {
   type UserPublic,
 } from '../api';
 import { passwordStrengthError } from '../password';
+import KnowledgeGraphScreen from './KnowledgeGraphScreen';
 import RegulatoryIntelligence from './RegulatoryIntelligence';
 
-type Screen = 'dashboard' | 'documents' | 'regulatory' | 'assistant';
+type Screen = 'dashboard' | 'documents' | 'regulatory' | 'knowledge-graph' | 'assistant';
 type NoticeKind = 'error' | 'success' | 'info';
 
 interface NoticeState {
@@ -59,6 +60,7 @@ const NAV_ITEMS: Array<{ id: Screen; label: string; icon: React.ElementType }> =
   { id: 'dashboard', label: 'Tổng quan', icon: LayoutDashboard },
   { id: 'documents', label: 'Tài liệu', icon: FileText },
   { id: 'regulatory', label: 'Thay đổi pháp lý', icon: Scale },
+  { id: 'knowledge-graph', label: 'Đồ thị tri thức', icon: Network },
   { id: 'assistant', label: 'Trợ lý AI', icon: MessageSquare },
 ];
 
@@ -861,6 +863,7 @@ export default function UserPortal({ currentUser, onLogout }: {
             )}
             {screen === 'assistant' && <AssistantScreen documents={documents} initialDocumentId={assistantDocumentId} />}
             {screen === 'regulatory' && <RegulatoryIntelligence onDocumentsChanged={loadDocuments} />}
+            {screen === 'knowledge-graph' && <KnowledgeGraphScreen documents={documents} />}
           </div>
         </main>
       </div>

@@ -4,6 +4,7 @@ from app.api.v1.admin_users import router as admin_users_router
 from app.api.v1.audit_logs import router as audit_logs_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.documents import router as documents_router
+from app.api.v1.knowledge_graph import router as knowledge_graph_router
 from app.api.v1.rag import router as rag_router
 from app.api.v1.regulatory import router as regulatory_router
 from app.api.v1.staff_directory import router as staff_directory_router
@@ -13,6 +14,7 @@ SECURE_V1_ROUTERS: tuple[APIRouter, ...] = (
     admin_users_router,
     staff_directory_router,
     documents_router,
+    knowledge_graph_router,
     rag_router,
     regulatory_router,
     audit_logs_router,

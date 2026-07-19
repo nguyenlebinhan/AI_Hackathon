@@ -9,11 +9,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.permissions import UserRole
 from app.core.security import hash_password
+from app.knowledge_graph.models import GraphVersion, KnowledgeEdge, KnowledgeNode
 from app.model.documents import Document
 from app.model.processing import ProcessingStatus
 from app.model.tenancy import Commune, Province
 from app.model.users import User, UserStatus
 from app.model.workspaces import Workspace
+from app.orchestrator.models import AIWorkflow
 from app.regulatory_change.models import (
     RegulatoryDocumentFamily,
     RegulatoryDocumentVersion,
@@ -94,7 +96,7 @@ def _login(client: TestClient, username: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
-def test_secure_regulatory_routes_require_auth_and_scope_documents_to_owner(
+def test_secure_intelligence_routes_require_auth_and_scope_documents_to_owner(
     client: TestClient,
     session_factory: sessionmaker[Session],
 ) -> None:
@@ -156,6 +158,68 @@ def test_secure_regulatory_routes_require_auth_and_scope_documents_to_owner(
             workspace=workspace_b,
             title="Văn bản thuộc người dùng B",
         )
+        workflow = AIWorkflow(
+            id=f"wf-{uuid4()}",
+            document_id=own.id,
+            intent="KNOWLEDGE_GRAPH_GENERATION",
+            status="COMPLETED",
+            private_processing=False,
+            plan={},
+            result={},
+        )
+        session.add(workflow)
+        session.flush()
+        graph_version = GraphVersion(
+            document_id=own.id,
+            workflow_id=workflow.id,
+            version=1,
+            status="COMPLETED",
+            is_current=True,
+            model_pipeline=["test-model"],
+            validation_issues=[],
+        )
+        session.add(graph_version)
+        session.flush()
+        source_node = KnowledgeNode(
+            graph_version_id=graph_version.id,
+            document_id=own.id,
+            source_key="agency-1",
+            node_type="AGENCY",
+            name="UBND tỉnh",
+            canonical_name="UBND tỉnh",
+            normalized_key="ubnd tinh",
+            properties={"role": "Chủ trì"},
+            importance="HIGH",
+            confidence=0.95,
+        )
+        target_node = KnowledgeNode(
+            graph_version_id=graph_version.id,
+            document_id=own.id,
+            source_key="report-1",
+            node_type="REPORT",
+            name="Báo cáo định kỳ",
+            canonical_name="Báo cáo định kỳ",
+            normalized_key="bao cao dinh ky",
+            properties={},
+            importance="MEDIUM",
+            confidence=0.9,
+        )
+        session.add_all([source_node, target_node])
+        session.flush()
+        session.add(
+            KnowledgeEdge(
+                graph_version_id=graph_version.id,
+                document_id=own.id,
+                source_key="submits-1",
+                source_node_id=source_node.id,
+                target_node_id=target_node.id,
+                edge_type="SUBMITS",
+                properties={},
+                importance="HIGH",
+                confidence=0.92,
+                verification_status="VERIFIED",
+            )
+        )
         session.commit()
         own_id = own.id
         other_id = other.id
@@ -179,6 +243,24 @@ def test_secure_regulatory_routes_require_auth_and_scope_documents_to_owner(
         headers=headers,
     )
     assert cross_tenant.status_code == 404
+
+    graph = client.get(
+        f"/api/v1/documents/{own_id}/knowledge-graph",
+        headers=headers,
+    )
+    assert graph.status_code == 200, graph.text
+    graph_data = graph.json()["data"]
+    assert {node["name"] for node in graph_data["nodes"]} == {
+        "UBND tỉnh",
+        "Báo cáo định kỳ",
+    }
+    assert graph_data["edges"][0]["type"] == "SUBMITS"
+
+    graph_cross_tenant = client.get(
+        f"/api/v1/documents/{other_id}/knowledge-graph",
+        headers=headers,
+    )
+    assert graph_cross_tenant.status_code == 404
 
     upload = client.post(
         "/api/v1/regulatory/documents",

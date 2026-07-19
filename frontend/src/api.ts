@@ -208,6 +208,69 @@ export interface RegulatoryIntelligenceData {
   legalRelations: RegulatoryLegalRelation[];
 }
 
+export interface KnowledgeGraphCitation {
+  id: string;
+  ownerType: "KNOWLEDGE_NODE" | "KNOWLEDGE_EDGE";
+  ownerId: string;
+  documentId: string;
+  chunkId: string;
+  quote: string;
+  page: number;
+  boundingBox: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  } | null;
+  article: string | null;
+  clause: string | null;
+  point: string | null;
+  sourceConfidence: number;
+  normalizedQuote: string;
+  createdAt: string;
+}
+
+export interface KnowledgeGraphNode {
+  id: string;
+  type: string;
+  name: string;
+  canonicalName: string;
+  normalizedKey: string;
+  properties: Record<string, unknown>;
+  importance: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  confidence: number;
+  citations: KnowledgeGraphCitation[];
+}
+
+export interface KnowledgeGraphEdge {
+  id: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  type: string;
+  properties: Record<string, unknown>;
+  importance: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  confidence: number;
+  verificationStatus: "NOT_REQUIRED" | "VERIFIED" | "NEEDS_REVIEW";
+  citations: KnowledgeGraphCitation[];
+}
+
+export interface KnowledgeGraph {
+  versionId: string;
+  documentId: string;
+  workflowId: string;
+  version: number;
+  status: "COMPLETED" | "NEEDS_REVIEW" | "SUPERSEDED";
+  isCurrent: boolean;
+  createdAt: string;
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+}
+
+export interface KnowledgeGraphGenerationResult {
+  workflowId: string;
+  graph: KnowledgeGraph | null;
+}
+
 interface ErrorEnvelope {
   error?: {
     code?: string;
@@ -485,6 +548,25 @@ export function analyzeRegulatoryDocument(
       body: JSON.stringify({ force }),
     },
   );
+}
+
+export function getKnowledgeGraph(documentId: string): Promise<KnowledgeGraph> {
+  return request<ApiSuccessEnvelope<KnowledgeGraph>>(
+    `/documents/${encodeURIComponent(documentId)}/knowledge-graph`,
+  ).then(envelope => envelope.data);
+}
+
+export function generateKnowledgeGraph(
+  documentId: string,
+  privateProcessing = false,
+): Promise<KnowledgeGraphGenerationResult> {
+  return request<ApiSuccessEnvelope<KnowledgeGraphGenerationResult>>(
+    `/documents/${encodeURIComponent(documentId)}/knowledge-graph/generate`,
+    {
+      method: "POST",
+      body: JSON.stringify({ privateProcessing }),
+    },
+  ).then(envelope => envelope.data);
 }
 
 export async function changePassword(
